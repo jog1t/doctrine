@@ -1,0 +1,441 @@
+/* ==========================================================
+   Doctrine — Core Styles
+   Aesthetic: military briefing room + text editor
+   Muted earth tones, clean serif/mono typography
+   ========================================================== */
+
+:root {
+  /* -- Earth palette -- */
+  --bg-primary: #1c1c1a;
+  --bg-secondary: #242422;
+  --bg-tertiary: #2e2e2b;
+  --bg-surface: #353532;
+
+  --text-primary: #e8e0d0;
+  --text-secondary: #a89e8c;
+  --text-muted: #6b6358;
+
+  --border: #3a3a36;
+  --border-light: #4a4a44;
+
+  /* -- Agent colors -- */
+  --color-gatherer: #c4a35a;
+  --color-scout: #5a8fc4;
+  --color-defender: #c45a5a;
+
+  /* -- Status colors -- */
+  --color-success: #6a9761;
+  --color-warning: #c4a35a;
+  --color-error: #c45a5a;
+  --color-info: #5a8fc4;
+
+  /* -- Accent -- */
+  --color-accent: #b8a472;
+  --color-deploy: #6a9761;
+
+  /* -- Typography -- */
+  --font-serif: "IBM Plex Serif", Georgia, serif;
+  --font-mono: "IBM Plex Mono", "Courier New", monospace;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* -- App Layout -- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.app-sidebar {
+  width: 420px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* -- Header -- */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.header-title {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: var(--text-primary);
+}
+
+.header-stats {
+  display: flex;
+  gap: 24px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.stat-label {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.phase-setup { color: var(--color-info); }
+.phase-running { color: var(--color-success); }
+.phase-paused { color: var(--color-warning); }
+
+/* -- Map -- */
+
+.map-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  overflow: auto;
+  padding: 20px;
+}
+
+.map-svg {
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+/* -- Game Controls -- */
+
+.game-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.speed-control input[type="range"] {
+  width: 100px;
+  accent-color: var(--color-accent);
+}
+
+.speed-value {
+  min-width: 48px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- Buttons -- */
+
+.btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-surface);
+  border-color: var(--text-muted);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--bg-surface);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.btn-deploy {
+  background: var(--bg-surface);
+  border-color: var(--color-deploy);
+  color: var(--color-deploy);
+}
+
+.btn-start {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.btn-stop {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.btn-secondary {
+  color: var(--text-secondary);
+}
+
+/* -- Doctrine Editor -- */
+
+.doctrine-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.doctrine-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.doctrine-editor-header h2 {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 3px;
+}
+
+.doctrine-version {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.doctrine-dirty {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--color-warning);
+  margin-left: auto;
+}
+
+.doctrine-textarea {
+  flex: 1;
+  min-height: 200px;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+}
+
+.doctrine-textarea.has-error {
+  border-left: 2px solid var(--color-error);
+}
+
+.doctrine-error {
+  padding: 6px 16px;
+  font-size: 11px;
+  color: var(--color-error);
+  background: rgba(196, 90, 90, 0.1);
+}
+
+.doctrine-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* -- Debrief Panel -- */
+
+.debrief-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.debrief-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.debrief-header h2,
+.debrief-panel > h2 {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  padding: 12px 16px;
+}
+
+.debrief-header h2 {
+  padding: 0;
+}
+
+.debrief-tick {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.debrief-empty {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.debrief-collected {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--color-success);
+  border-bottom: 1px solid var(--border);
+}
+
+.debrief-actions {
+  overflow-y: auto;
+}
+
+.action-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 16px;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(58, 58, 54, 0.5);
+}
+
+.action-row:hover {
+  background: var(--bg-secondary);
+}
+
+.action-icon {
+  font-weight: 600;
+  width: 12px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.action-type {
+  font-weight: 600;
+  width: 28px;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.type-gatherer { color: var(--color-gatherer); }
+.type-scout { color: var(--color-scout); }
+.type-defender { color: var(--color-defender); }
+
+.action-id {
+  color: var(--text-secondary);
+  min-width: 80px;
+}
+
+.action-desc {
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.action-move .action-icon { color: var(--color-info); }
+.action-gather .action-icon { color: var(--color-success); }
+.action-deposit .action-icon { color: var(--color-warning); }
+
+/* -- Loading / Error -- */
+
+.app-loading, .app-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 16px;
+}
+
+.app-loading h2, .app-error h2 {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  letter-spacing: 8px;
+}
+
+.app-loading p, .app-error p {
+  color: var(--text-muted);
+}
+
+/* -- Scrollbar -- */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 3px;
+}
