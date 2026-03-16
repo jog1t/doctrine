@@ -121,6 +121,11 @@ world.useEvent("eventName", callback);   // client side
 | M4–M8     | Elaboration (fog of war, doctrine versioning, replay, etc.) |
 | M9        | Full multiplayer with matchmaking actor                     |
 
+## Git
+
+- User's git credentials: **Kacper Wojciechowski** `39823706+jog1t@users.noreply.github.com`
+- Always commit using these credentials — do **not** add `Co-Authored-By: Claude` lines to commits
+
 ## What NOT to Do
 
 - Do not add `Math.random()` to engine code
