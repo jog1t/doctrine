@@ -195,10 +195,32 @@ export function MapView({ map, agents, basePosition, threats, towers, doctrine }
           );
         })}
 
-        {/* Agents */}
-        {agents.map((agent) => {
-          const cx = agent.position.x * TILE_SIZE + TILE_SIZE / 2;
-          const cy = agent.position.y * TILE_SIZE + TILE_SIZE / 2;
+        {/* Agents — offset stacked agents so all are visible */}
+        {(() => {
+          // Count how many agents share each tile and assign a slot index
+          const tileCounts = new Map<string, number>();
+          const tileSlot = new Map<string, number>();
+          for (const agent of agents) {
+            const key = `${agent.position.x},${agent.position.y}`;
+            const count = tileCounts.get(key) ?? 0;
+            tileSlot.set(agent.id, count);
+            tileCounts.set(key, count + 1);
+          }
+
+          // Offsets for up to 4 agents on the same tile (compass directions)
+          const OFFSETS = [
+            { dx: 0, dy: 0 },
+            { dx: 5, dy: -5 },
+            { dx: -5, dy: 5 },
+            { dx: 5, dy: 5 },
+          ];
+
+          return agents.map((agent) => {
+          const slot = tileSlot.get(agent.id) ?? 0;
+          const tileTotal = tileCounts.get(`${agent.position.x},${agent.position.y}`) ?? 1;
+          const offset = tileTotal > 1 ? (OFFSETS[slot % OFFSETS.length] ?? OFFSETS[0]) : { dx: 0, dy: 0 };
+          const cx = agent.position.x * TILE_SIZE + TILE_SIZE / 2 + offset.dx;
+          const cy = agent.position.y * TILE_SIZE + TILE_SIZE / 2 + offset.dy;
           const color = AGENT_COLORS[agent.type];
           const r = 5;
           const load = memoryLoad(agent, doctrine);
@@ -272,7 +294,8 @@ export function MapView({ map, agents, basePosition, threats, towers, doctrine }
               </title>
             </g>
           );
-        })}
+        });
+        })()}
       </svg>
     </div>
   );
