@@ -129,10 +129,11 @@ function ActionRow({
   const isStale = action.doctrineVersion < currentDoctrineVersion;
 
   return (
-    <div
+    <button
+      type="button"
       className={`action-row action-${action.action}${isStale ? " action-stale" : ""}${isExpanded ? " action-row-expanded" : ""}`}
       onClick={onClick}
-      style={{ cursor: "pointer" }}
+      aria-expanded={isExpanded}
     >
       <span className="action-icon">{icon}</span>
       <span className={`action-type type-${action.agentType}`}>{typeLabel}</span>
@@ -148,7 +149,7 @@ function ActionRow({
           {isExpanded ? "▲" : "▼"}
         </span>
       )}
-    </div>
+    </button>
   );
 }
 

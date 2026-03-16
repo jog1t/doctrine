@@ -374,7 +374,7 @@ function runTick(
   const killedAgentIds = applyThreatDamage(threats, agents, tick, pendingEpisodes);
 
   // Apply episodic memory updates and decay
-  applyMemoryUpdates(agents, doctrine, pendingEpisodes, tick);
+  applyMemoryUpdates(agents, doctrine, pendingEpisodes, tick, previousDoctrine);
 
   const notices = detectRedundancyNotices(actions);
 
@@ -405,9 +405,21 @@ function normalizeDoctrine(doctrine: Doctrine): Doctrine {
   return {
     ...DEFAULT_DOCTRINE,
     ...doctrine,
-    gatherer: { ...DEFAULT_DOCTRINE.gatherer, ...doctrine.gatherer },
-    scout: { ...DEFAULT_DOCTRINE.scout, ...doctrine.scout },
-    defender: { ...DEFAULT_DOCTRINE.defender, ...doctrine.defender },
+    gatherer: {
+      ...DEFAULT_DOCTRINE.gatherer,
+      ...doctrine.gatherer,
+      memory: { ...DEFAULT_DOCTRINE.gatherer.memory, ...doctrine.gatherer?.memory },
+    },
+    scout: {
+      ...DEFAULT_DOCTRINE.scout,
+      ...doctrine.scout,
+      memory: { ...DEFAULT_DOCTRINE.scout.memory, ...doctrine.scout?.memory },
+    },
+    defender: {
+      ...DEFAULT_DOCTRINE.defender,
+      ...doctrine.defender,
+      memory: { ...DEFAULT_DOCTRINE.defender.memory, ...doctrine.defender?.memory },
+    },
   };
 }
 

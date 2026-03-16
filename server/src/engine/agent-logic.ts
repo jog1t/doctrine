@@ -252,6 +252,7 @@ function executeScout(
   doctrine: Doctrine,
   map: GameMap,
   tick: number,
+  knownResources: Position[],
   newKnownResources: Position[],
   pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
 ): AgentAction {
@@ -268,7 +269,9 @@ function executeScout(
         if (distance(agent.position, { x, y }) > agent.visionRadius) continue;
         const tile = map.tiles[y][x];
         if (tile.type === "resource" && tile.resources > 0) {
-          const isNew = !newKnownResources.some((p) => p.x === x && p.y === y);
+          const isNew =
+            !newKnownResources.some((p) => p.x === x && p.y === y) &&
+            !knownResources.some((p) => p.x === x && p.y === y);
           if (isNew) {
             newKnownResources.push({ x, y });
             // Record as episode
@@ -344,13 +347,14 @@ function executeScout(
     };
   }
 
-  // Working memory: commit to patrol target to avoid constant micro-oscillation
-  if (
-    !agent.workingMemory.currentTask ||
-    agent.workingMemory.currentTask === "patrol"
-  ) {
+  // Working memory: commit to a new patrol target only when starting fresh or the previous target was reached
+  const atTarget =
+    agent.workingMemory.taskTarget !== null &&
+    distance(agent.position, agent.workingMemory.taskTarget) <= 1;
+  if (!agent.workingMemory.currentTask || agent.workingMemory.currentTask !== "patrol" || atTarget) {
     agent.workingMemory.currentTask = "patrol";
     agent.workingMemory.taskTarget = targetPos;
+    agent.workingMemory.taskStartTick = tick;
   }
 
   // Linger logic
@@ -481,7 +485,7 @@ export function executeAgent(
     case "gatherer":
       return executeGatherer(agent, doctrine, map, knownResources, tick, pendingEpisodes);
     case "scout":
-      return executeScout(agent, doctrine, map, tick, newKnownResources, pendingEpisodes);
+      return executeScout(agent, doctrine, map, tick, knownResources, newKnownResources, pendingEpisodes);
     case "defender":
       return executeDefender(agent, doctrine, map, threats, tick, pendingEpisodes);
   }
@@ -569,6 +573,7 @@ export function applyMemoryUpdates(
   doctrine: Doctrine,
   pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
   tick: number,
+  previousDoctrine: Doctrine | null,
 ): void {
   // Group pending episodes by agent
   const byAgent = new Map<string, EpisodeRecord[]>();
@@ -579,7 +584,11 @@ export function applyMemoryUpdates(
 
   for (const agent of agents) {
     const newEpisodes = byAgent.get(agent.id) ?? [];
-    const memCfg = getMemoryConfig(agent.type, doctrine);
+    const agentDoctrine =
+      agent.deployedDoctrineVersion >= doctrine.version || !previousDoctrine
+        ? doctrine
+        : previousDoctrine;
+    const memCfg = getMemoryConfig(agent.type, agentDoctrine);
 
     // Append new episodes
     agent.episodes.push(...newEpisodes);

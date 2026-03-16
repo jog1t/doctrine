@@ -398,6 +398,15 @@ body {
   padding: 4px 16px;
   font-size: 11px;
   border-bottom: 1px solid rgba(58, 58, 54, 0.5);
+  width: 100%;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .action-row:hover {

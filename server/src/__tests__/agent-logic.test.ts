@@ -425,7 +425,7 @@ describe("applyMemoryUpdates", () => {
       { agentId: "scout-0", record: { tick: 1, eventType: "resource-found" as const, position: { x: 5, y: 5 }, detail: "test" } },
     ];
 
-    applyMemoryUpdates(agents, doctrine, pending, 1);
+    applyMemoryUpdates(agents, doctrine, pending, 1, null);
 
     expect(agents[0].episodes.length).toBe(1);
     expect(agents[0].episodes[0].eventType).toBe("resource-found");
@@ -446,7 +446,7 @@ describe("applyMemoryUpdates", () => {
       { agentId: "scout-0", record: { tick: 21, eventType: "resource-found" as const, position: { x: 21, y: 0 }, detail: "ep21" } },
     ];
 
-    applyMemoryUpdates([agent], doctrine, pending, 21);
+    applyMemoryUpdates([agent], doctrine, pending, 21, null);
 
     expect(agent.episodes.length).toBe(20);
     // Should keep the 20 most recent
@@ -464,7 +464,7 @@ describe("applyMemoryUpdates", () => {
       gatherer: { ...makeDoctrine().gatherer, memory: { maxEpisodes: 10, decayAfterTicks: 10 } },
     });
 
-    applyMemoryUpdates([agent], doctrine, [], 30); // tick 30: episode at tick 1 is 29 ticks old > 10
+    applyMemoryUpdates([agent], doctrine, [], 30, null); // tick 30: episode at tick 1 is 29 ticks old > 10
 
     expect(agent.episodes.length).toBe(1);
     expect(agent.episodes[0].detail).toBe("recent");
@@ -480,7 +480,7 @@ describe("applyMemoryUpdates", () => {
       gatherer: { ...makeDoctrine().gatherer, memory: { maxEpisodes: 100, decayAfterTicks: 0 } },
     });
 
-    applyMemoryUpdates([agent], doctrine, [], 1000);
+    applyMemoryUpdates([agent], doctrine, [], 1000, null);
 
     expect(agent.episodes.length).toBe(1);
   });
@@ -492,7 +492,7 @@ describe("applyMemoryUpdates", () => {
       { agentId: "nonexistent", record: { tick: 1, eventType: "resource-found" as const, position: { x: 0, y: 0 }, detail: "" } },
     ];
 
-    applyMemoryUpdates(agents, doctrine, pending, 1);
+    applyMemoryUpdates(agents, doctrine, pending, 1, null);
 
     expect(agents[0].episodes.length).toBe(0);
   });
