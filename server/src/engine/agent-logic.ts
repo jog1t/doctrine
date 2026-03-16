@@ -1,10 +1,4 @@
-import type {
-  Agent,
-  AgentAction,
-  Doctrine,
-  GameMap,
-  Position,
-} from "@doctrine/shared";
+import type { Agent, AgentAction, Doctrine, GameMap, Position } from "@doctrine/shared";
 
 // --- Utility ---
 
@@ -16,15 +10,34 @@ function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
 }
 
-/** Move one step toward target (Manhattan movement). */
-function stepToward(from: Position, to: Position): Position {
+/** Move one step toward target, trying both axes and sidestepping if blocked. */
+function stepToward(from: Position, to: Position, map?: GameMap): Position {
   const dx = Math.sign(to.x - from.x);
   const dy = Math.sign(to.y - from.y);
-  // Prefer axis with larger distance
-  if (Math.abs(to.x - from.x) >= Math.abs(to.y - from.y)) {
-    return { x: from.x + dx, y: from.y };
-  }
-  return { x: from.x, y: from.y + dy };
+
+  // Primary: prefer axis with larger distance
+  const primary: Position =
+    Math.abs(to.x - from.x) >= Math.abs(to.y - from.y)
+      ? { x: from.x + dx, y: from.y }
+      : { x: from.x, y: from.y + dy };
+
+  if (!map || isPassable(map, primary)) return primary;
+
+  // Secondary: try the other axis
+  const secondary: Position =
+    Math.abs(to.x - from.x) >= Math.abs(to.y - from.y)
+      ? { x: from.x, y: from.y + dy }
+      : { x: from.x + dx, y: from.y };
+
+  if (isPassable(map, secondary)) return secondary;
+
+  // Sidestep perpendicular to try to get around the obstacle
+  if (dx !== 0 && isPassable(map, { x: from.x, y: from.y + 1 })) return { x: from.x, y: from.y + 1 };
+  if (dx !== 0 && isPassable(map, { x: from.x, y: from.y - 1 })) return { x: from.x, y: from.y - 1 };
+  if (dy !== 0 && isPassable(map, { x: from.x + 1, y: from.y })) return { x: from.x + 1, y: from.y };
+  if (dy !== 0 && isPassable(map, { x: from.x - 1, y: from.y })) return { x: from.x - 1, y: from.y };
+
+  return from; // truly stuck
 }
 
 function isPassable(map: GameMap, pos: Position): boolean {
@@ -38,7 +51,7 @@ function findNearestResource(
   map: GameMap,
   from: Position,
   radius: number,
-  preferClosest: boolean
+  preferClosest: boolean,
 ): Position | null {
   let best: Position | null = null;
   let bestScore = Infinity;
@@ -66,11 +79,7 @@ function findNearestResource(
 
 // --- Agent Logic (Tier 0: Stateless, Deterministic) ---
 
-function executeGatherer(
-  agent: Agent,
-  doctrine: Doctrine,
-  map: GameMap
-): AgentAction {
+function executeGatherer(agent: Agent, doctrine: Doctrine, map: GameMap): AgentAction {
   const cfg = doctrine.gatherer;
   const base = doctrine.basePosition;
 
@@ -86,14 +95,14 @@ function executeGatherer(
         to: base,
       };
     }
-    const next = stepToward(agent.position, base);
+    const next = stepToward(agent.position, base, map);
     return {
       agentId: agent.id,
       agentType: "gatherer",
       action: "move",
       reason: `Carrying ${agent.carrying}/${cfg.returnThreshold}, returning to base`,
       from: agent.position,
-      to: isPassable(map, next) ? next : agent.position,
+      to: next,
     };
   }
 
@@ -111,22 +120,17 @@ function executeGatherer(
   }
 
   // Search for nearest resource
-  const target = findNearestResource(
-    map,
-    agent.position,
-    cfg.searchRadius,
-    cfg.preferClosest
-  );
+  const target = findNearestResource(map, agent.position, cfg.searchRadius, cfg.preferClosest);
 
   if (target) {
-    const next = stepToward(agent.position, target);
+    const next = stepToward(agent.position, target, map);
     return {
       agentId: agent.id,
       agentType: "gatherer",
       action: "move",
       reason: `Moving toward resource at (${target.x}, ${target.y})`,
       from: agent.position,
-      to: isPassable(map, next) ? next : agent.position,
+      to: next,
     };
   }
 
@@ -141,12 +145,7 @@ function executeGatherer(
   };
 }
 
-function executeScout(
-  agent: Agent,
-  doctrine: Doctrine,
-  map: GameMap,
-  tick: number
-): AgentAction {
+function executeScout(agent: Agent, doctrine: Doctrine, map: GameMap, tick: number): AgentAction {
   const cfg = doctrine.scout;
   const base = doctrine.basePosition;
 
@@ -158,16 +157,8 @@ function executeScout(
     const hash = hashString(agent.id) + tick;
     const angle = ((hash % 360) * Math.PI) / 180;
     targetPos = {
-      x: clamp(
-        Math.round(base.x + Math.cos(angle) * cfg.patrolRadius),
-        0,
-        map.width - 1
-      ),
-      y: clamp(
-        Math.round(base.y + Math.sin(angle) * cfg.patrolRadius),
-        0,
-        map.height - 1
-      ),
+      x: clamp(Math.round(base.x + Math.cos(angle) * cfg.patrolRadius), 0, map.width - 1),
+      y: clamp(Math.round(base.y + Math.sin(angle) * cfg.patrolRadius), 0, map.height - 1),
     };
   } else if (cfg.patrolPattern === "perimeter") {
     // Walk the perimeter of the patrol radius
@@ -178,10 +169,18 @@ function executeScout(
 
     const r = cfg.patrolRadius;
     switch (side) {
-      case 0: targetPos = { x: base.x - r + progress * 2 * r, y: base.y - r }; break;
-      case 1: targetPos = { x: base.x + r, y: base.y - r + progress * 2 * r }; break;
-      case 2: targetPos = { x: base.x + r - progress * 2 * r, y: base.y + r }; break;
-      default: targetPos = { x: base.x - r, y: base.y + r - progress * 2 * r }; break;
+      case 0:
+        targetPos = { x: base.x - r + progress * 2 * r, y: base.y - r };
+        break;
+      case 1:
+        targetPos = { x: base.x + r, y: base.y - r + progress * 2 * r };
+        break;
+      case 2:
+        targetPos = { x: base.x + r - progress * 2 * r, y: base.y + r };
+        break;
+      default:
+        targetPos = { x: base.x - r, y: base.y + r - progress * 2 * r };
+        break;
     }
     targetPos = {
       x: clamp(Math.round(targetPos.x), 0, map.width - 1),
@@ -199,10 +198,7 @@ function executeScout(
   }
 
   // Linger logic — stay if close to target and within linger period
-  if (
-    distance(agent.position, targetPos) <= 1 &&
-    tick % (cfg.lingerTicks + 1) !== 0
-  ) {
+  if (distance(agent.position, targetPos) <= 1 && tick % (cfg.lingerTicks + 1) !== 0) {
     return {
       agentId: agent.id,
       agentType: "scout",
@@ -213,36 +209,32 @@ function executeScout(
     };
   }
 
-  const next = stepToward(agent.position, targetPos);
+  const next = stepToward(agent.position, targetPos, map);
   return {
     agentId: agent.id,
     agentType: "scout",
     action: "move",
     reason: `Patrolling (${cfg.patrolPattern}) toward (${targetPos.x}, ${targetPos.y})`,
     from: agent.position,
-    to: isPassable(map, next) ? next : agent.position,
+    to: next,
   };
 }
 
-function executeDefender(
-  agent: Agent,
-  doctrine: Doctrine,
-  map: GameMap
-): AgentAction {
+function executeDefender(agent: Agent, doctrine: Doctrine, map: GameMap): AgentAction {
   const cfg = doctrine.defender;
   const base = doctrine.basePosition;
   const distFromBase = distance(agent.position, base);
 
   // If too far from guard post, return
   if (distFromBase > cfg.guardRadius) {
-    const next = stepToward(agent.position, base);
+    const next = stepToward(agent.position, base, map);
     return {
       agentId: agent.id,
       agentType: "defender",
       action: "move",
       reason: `Too far from base (${distFromBase} > ${cfg.guardRadius}), returning`,
       from: agent.position,
-      to: isPassable(map, next) ? next : agent.position,
+      to: next,
     };
   }
 
@@ -263,7 +255,7 @@ export function executeAgent(
   agent: Agent,
   doctrine: Doctrine,
   map: GameMap,
-  tick: number
+  tick: number,
 ): AgentAction {
   switch (agent.type) {
     case "gatherer":
@@ -276,11 +268,7 @@ export function executeAgent(
 }
 
 /** Apply an action's effects to the mutable game state. */
-export function applyAction(
-  action: AgentAction,
-  agents: Agent[],
-  map: GameMap
-): number {
+export function applyAction(action: AgentAction, agents: Agent[], map: GameMap): number {
   const agent = agents.find((a) => a.id === action.agentId);
   if (!agent) return 0;
 
