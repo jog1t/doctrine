@@ -124,7 +124,27 @@ function executeGatherer(
     };
   }
 
-  // Search for nearest resource
+  const validKnown = knownResources.filter((pos) => {
+    const tile = map.tiles[pos.y]?.[pos.x];
+    return tile?.type === "resource" && tile.resources > 0;
+  });
+  const knownTarget =
+    validKnown.sort((a, b) => distance(agent.position, a) - distance(agent.position, b))[0] ?? null;
+
+  // When preferScoutIntel=true, check intel before local scan
+  if (cfg.preferScoutIntel && knownTarget) {
+    const next = stepToward(agent.position, knownTarget, map);
+    return {
+      agentId: agent.id,
+      agentType: "gatherer",
+      action: "move-intel",
+      reason: `Intel: heading to scout-reported resource at (${knownTarget.x}, ${knownTarget.y})`,
+      from: agent.position,
+      to: next,
+    };
+  }
+
+  // Local scan
   const target = findNearestResource(map, agent.position, cfg.searchRadius, cfg.preferClosest);
 
   if (target) {
@@ -139,14 +159,7 @@ function executeGatherer(
     };
   }
 
-  // Fall back to scout-reported known resources
-  const knownTarget = knownResources
-    .filter((pos) => {
-      const tile = map.tiles[pos.y]?.[pos.x];
-      return tile?.type === "resource" && tile.resources > 0;
-    })
-    .sort((a, b) => distance(agent.position, a) - distance(agent.position, b))[0] ?? null;
-
+  // Fallback to intel when local scan finds nothing
   if (knownTarget) {
     const next = stepToward(agent.position, knownTarget, map);
     return {

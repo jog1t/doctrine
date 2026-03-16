@@ -60,6 +60,12 @@ export interface GathererDoctrine {
   returnThreshold: number;
   /** Whether to prefer closest resource or richest */
   preferClosest: boolean;
+  /**
+   * When true, gatherers consult scout-reported intel before their local scan.
+   * Enables coordinated targeting but makes gatherers dependent on active scouts.
+   * When false, local scan runs first; intel is only a fallback.
+   */
+  preferScoutIntel: boolean;
 }
 
 export interface ScoutDoctrine {
@@ -145,9 +151,10 @@ export const DEFAULT_DOCTRINE: Doctrine = {
   version: 1,
   name: "Default Doctrine",
   gatherer: {
-    searchRadius: 10,
+    searchRadius: 4,
     returnThreshold: 3,
     preferClosest: true,
+    preferScoutIntel: true,
   },
   scout: {
     patrolRadius: 12,
@@ -173,11 +180,12 @@ export const DOCTRINE_SCHEMA = {
     name: { type: "string", minLength: 1, maxLength: 64 },
     gatherer: {
       type: "object",
-      required: ["searchRadius", "returnThreshold", "preferClosest"],
+      required: ["searchRadius", "returnThreshold", "preferClosest", "preferScoutIntel"],
       properties: {
-        searchRadius: { type: "number", minimum: 1, maximum: 20 },
+        searchRadius: { type: "number", minimum: 1, maximum: 32 },
         returnThreshold: { type: "number", minimum: 1, maximum: 10 },
         preferClosest: { type: "boolean" },
+        preferScoutIntel: { type: "boolean" },
       },
     },
     scout: {
