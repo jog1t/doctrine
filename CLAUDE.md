@@ -123,8 +123,7 @@ world.useEvent("eventName", callback);   // client side
 
 ## Git
 
-- User's git credentials: **Kacper Wojciechowski** `39823706+jog1t@users.noreply.github.com`
-- Always commit using these credentials — do **not** add `Co-Authored-By: Claude` lines to commits
+- Do **not** add `Co-Authored-By: Claude` lines to commits — use the repo's configured git identity only
 
 ## What NOT to Do
 

@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(grep -E \"\\\\.\\(ts|tsx|json|md|yaml\\)$\")",
-      "Bash(pnpm install:*)"
-    ]
-  }
-}

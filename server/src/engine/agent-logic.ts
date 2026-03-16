@@ -609,7 +609,7 @@ function getMemoryConfig(type: string, doctrine: Doctrine): MemoryConfig {
   }
 }
 
-/** Move a threat one step toward the nearest agent. Returns true if threat hit something. */
+/** Move a threat one step toward the nearest agent. */
 export function moveThreat(threat: Threat, agents: Agent[], map: GameMap): void {
   if (agents.length === 0) return;
 
@@ -628,17 +628,18 @@ export function moveThreat(threat: Threat, agents: Agent[], map: GameMap): void 
   threat.position = stepToward(threat.position, nearest.position, map);
 }
 
-/** Deal damage from threats to agents on same tile. Returns list of killed agent IDs. */
+/** Deal damage from threats to agents on same tile. Returns list of killed agent IDs (deduplicated). */
 export function applyThreatDamage(
   threats: Threat[],
   agents: Agent[],
   tick: number,
   pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
 ): string[] {
-  const killed: string[] = [];
+  const killedSet = new Set<string>();
 
   for (const threat of threats) {
     for (const agent of agents) {
+      if (killedSet.has(agent.id)) continue; // already dead this tick — skip further damage
       if (agent.position.x === threat.position.x && agent.position.y === threat.position.y) {
         agent.hp -= 1;
         pendingEpisodes.push({
@@ -651,13 +652,13 @@ export function applyThreatDamage(
           },
         });
         if (agent.hp <= 0) {
-          killed.push(agent.id);
+          killedSet.add(agent.id);
         }
       }
     }
   }
 
-  return killed;
+  return Array.from(killedSet);
 }
 
 // --- Helpers ---

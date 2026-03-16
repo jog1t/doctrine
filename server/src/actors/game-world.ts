@@ -179,7 +179,7 @@ export const gameWorld = actor({
       // Immediately update agents within any tower's broadcast radius
       for (const agent of c.state.agents) {
         for (const tower of c.state.towers) {
-          if (manhattanDist(agent.position, tower.position) <= tower.broadcastRadius) {
+          if (euclideanDist(agent.position, tower.position) <= tower.broadcastRadius) {
             agent.deployedDoctrineVersion = newVersion;
             break;
           }
@@ -252,7 +252,7 @@ export const gameWorld = actor({
       for (const agent of c.state.agents) {
         if (agent.deployedDoctrineVersion < currentVersion) {
           for (const tower of c.state.towers) {
-            if (manhattanDist(agent.position, tower.position) <= tower.broadcastRadius) {
+            if (euclideanDist(agent.position, tower.position) <= tower.broadcastRadius) {
               agent.deployedDoctrineVersion = currentVersion;
               debrief.notices.push(
                 `SYNC: ${agent.id} received doctrine v${currentVersion} from tower at (${tower.position.x}, ${tower.position.y})`,
@@ -394,8 +394,10 @@ function runTick(
 
 // --- Helpers ---
 
-function manhattanDist(a: Position, b: Position): number {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+function euclideanDist(a: Position, b: Position): number {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 /** Fill in any missing fields from DEFAULT_DOCTRINE so old persisted state doesn't crash. */

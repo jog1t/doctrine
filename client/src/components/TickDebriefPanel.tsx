@@ -168,7 +168,7 @@ function AgentMemoryPanel({ agent, maxEpisodes, currentTick }: { agent: Agent; m
             style={{ width: `${memLoad * 100}%`, opacity: 0.4 + memLoad * 0.6 }}
           />
         </div>
-        <span className="memory-bar-count">{agent.episodes.length}/{maxEpisodes}</span>
+        <span className="memory-bar-count">{agent.episodes.length}/{maxEpisodes === 0 ? "∞" : maxEpisodes}</span>
       </div>
 
       {/* Working memory */}

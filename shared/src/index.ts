@@ -56,9 +56,9 @@ export interface EpisodeRecord {
 
 /** Memory configuration per agent type */
 export interface MemoryConfig {
-  /** Maximum episodes to retain */
+  /** Maximum episodes to retain. 0 = unlimited (no trimming by count). */
   maxEpisodes: number;
-  /** Episodes older than this many ticks are dropped (0 = keep forever within maxEpisodes) */
+  /** Episodes older than this many ticks are dropped. 0 = keep forever. */
   decayAfterTicks: number;
 }
 
