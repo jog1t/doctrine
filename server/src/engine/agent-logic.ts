@@ -79,7 +79,12 @@ function findNearestResource(
 
 // --- Agent Logic (Tier 0: Stateless, Deterministic) ---
 
-function executeGatherer(agent: Agent, doctrine: Doctrine, map: GameMap): AgentAction {
+function executeGatherer(
+  agent: Agent,
+  doctrine: Doctrine,
+  map: GameMap,
+  knownResources: Position[],
+): AgentAction {
   const cfg = doctrine.gatherer;
   const base = doctrine.basePosition;
 
@@ -134,31 +139,84 @@ function executeGatherer(agent: Agent, doctrine: Doctrine, map: GameMap): AgentA
     };
   }
 
-  // No resource found, wander
+  // Fall back to scout-reported known resources
+  const knownTarget = knownResources
+    .filter((pos) => {
+      const tile = map.tiles[pos.y]?.[pos.x];
+      return tile?.type === "resource" && tile.resources > 0;
+    })
+    .sort((a, b) => distance(agent.position, a) - distance(agent.position, b))[0] ?? null;
+
+  if (knownTarget) {
+    const next = stepToward(agent.position, knownTarget, map);
+    return {
+      agentId: agent.id,
+      agentType: "gatherer",
+      action: "move",
+      reason: `Moving toward scout-reported resource at (${knownTarget.x}, ${knownTarget.y})`,
+      from: agent.position,
+      to: next,
+    };
+  }
+
   return {
     agentId: agent.id,
     agentType: "gatherer",
     action: "idle",
-    reason: `No resources within search radius ${cfg.searchRadius}`,
+    reason: `No resources within search radius ${cfg.searchRadius} and no scout reports`,
     from: agent.position,
     to: null,
   };
 }
 
-function executeScout(agent: Agent, doctrine: Doctrine, map: GameMap, tick: number): AgentAction {
+function executeScout(
+  agent: Agent,
+  doctrine: Doctrine,
+  map: GameMap,
+  tick: number,
+  newKnownResources: Position[],
+): AgentAction {
   const cfg = doctrine.scout;
   const base = doctrine.basePosition;
 
-  // Simple patrol logic
+  // Report resources visible at current position
+  if (cfg.reportResourceFinds) {
+    for (let dy = -agent.visionRadius; dy <= agent.visionRadius; dy++) {
+      for (let dx = -agent.visionRadius; dx <= agent.visionRadius; dx++) {
+        const x = agent.position.x + dx;
+        const y = agent.position.y + dy;
+        if (x < 0 || x >= map.width || y < 0 || y >= map.height) continue;
+        if (distance(agent.position, { x, y }) > agent.visionRadius) continue;
+        const tile = map.tiles[y][x];
+        if (tile.type === "resource" && tile.resources > 0) {
+          newKnownResources.push({ x, y });
+        }
+      }
+    }
+  }
+
+  // Patrol logic
   let targetPos: Position;
 
-  if (cfg.patrolPattern === "random") {
-    // Pseudo-random based on agent id hash + tick
-    const hash = hashString(agent.id) + tick;
-    const angle = ((hash % 360) * Math.PI) / 180;
+  if (cfg.patrolPattern === "grid") {
+    // Divide map into sectors; each scout owns one by index and sweeps it systematically.
+    const scoutIndex = parseInt(agent.id.split("-")[1] || "0");
+    const cols = 2;
+    const sectorW = Math.floor(map.width / cols);
+    const sectorH = Math.floor(map.height / 2);
+    const col = scoutIndex % cols;
+    const row = Math.floor(scoutIndex / cols) % 2;
+    const sectorX = col * sectorW;
+    const sectorY = row * sectorH;
+
+    // Walk sector in a boustrophedon (snake) pattern based on tick
+    const cellsInSector = sectorW * sectorH;
+    const cellIndex = (tick + hashString(agent.id)) % cellsInSector;
+    const localRow = Math.floor(cellIndex / sectorW);
+    const localCol = localRow % 2 === 0 ? cellIndex % sectorW : sectorW - 1 - (cellIndex % sectorW);
     targetPos = {
-      x: clamp(Math.round(base.x + Math.cos(angle) * cfg.patrolRadius), 0, map.width - 1),
-      y: clamp(Math.round(base.y + Math.sin(angle) * cfg.patrolRadius), 0, map.height - 1),
+      x: clamp(sectorX + localCol, 0, map.width - 1),
+      y: clamp(sectorY + localRow, 0, map.height - 1),
     };
   } else if (cfg.patrolPattern === "perimeter") {
     // Walk the perimeter of the patrol radius
@@ -256,12 +314,14 @@ export function executeAgent(
   doctrine: Doctrine,
   map: GameMap,
   tick: number,
+  knownResources: Position[],
+  newKnownResources: Position[],
 ): AgentAction {
   switch (agent.type) {
     case "gatherer":
-      return executeGatherer(agent, doctrine, map);
+      return executeGatherer(agent, doctrine, map, knownResources);
     case "scout":
-      return executeScout(agent, doctrine, map, tick);
+      return executeScout(agent, doctrine, map, tick, newKnownResources);
     case "defender":
       return executeDefender(agent, doctrine, map);
   }

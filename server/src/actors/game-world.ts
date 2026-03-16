@@ -17,9 +17,19 @@ import { executeAgent, applyAction } from "../engine/agent-logic.js";
 function createAgent(id: string, type: AgentType, base: { x: number; y: number }): Agent {
   // Spread agents around the base
   const offsets: Record<AgentType, { x: number; y: number }[]> = {
-    gatherer: [{ x: -1, y: 0 }, { x: 1, y: 0 }, { x: 0, y: -1 }],
-    scout: [{ x: -2, y: -2 }, { x: 2, y: 2 }],
-    defender: [{ x: 0, y: 1 }, { x: -1, y: 1 }],
+    gatherer: [
+      { x: -1, y: 0 },
+      { x: 1, y: 0 },
+      { x: 0, y: -1 },
+    ],
+    scout: [
+      { x: -2, y: -2 },
+      { x: 2, y: 2 },
+    ],
+    defender: [
+      { x: 0, y: 1 },
+      { x: -1, y: 1 },
+    ],
   };
 
   const typeOffsets = offsets[type];
@@ -71,6 +81,8 @@ export const gameWorld = actor({
     tickIntervalMs: 1000,
     /** Whether auto-tick is running */
     autoTick: false,
+    /** Resource positions discovered by scouts (reportResourceFinds=true) */
+    knownResources: [] as import("@doctrine/shared").Position[],
   },
 
   actions: {
@@ -89,6 +101,7 @@ export const gameWorld = actor({
       c.state.debriefs = [];
       c.state.seed = gameSeed;
       c.state.autoTick = false;
+      c.state.knownResources = [];
 
       c.broadcast("gameInitialized", getPublicState(c.state));
       return getPublicState(c.state);
@@ -115,12 +128,25 @@ export const gameWorld = actor({
       c.state.tick += 1;
       c.state.phase = "running";
 
-      const debrief = runTick(
+      const { debrief, newKnownResources } = runTick(
         c.state.tick,
         c.state.agents,
         c.state.doctrine,
-        c.state.map
+        c.state.map,
+        c.state.knownResources,
       );
+
+      // Merge scout discoveries into shared list (deduplicated)
+      for (const pos of newKnownResources) {
+        const already = c.state.knownResources.some((k) => k.x === pos.x && k.y === pos.y);
+        if (!already) c.state.knownResources.push(pos);
+      }
+
+      // Remove depleted tiles from known list
+      c.state.knownResources = c.state.knownResources.filter((pos) => {
+        const tile = c.state.map!.tiles[pos.y][pos.x];
+        return tile.type === "resource" && tile.resources > 0;
+      });
 
       c.state.totalResourcesCollected += debrief.resourcesCollected;
       debrief.totalResources = c.state.totalResourcesCollected;
@@ -182,10 +208,12 @@ function runTick(
   tick: number,
   agents: Agent[],
   doctrine: Doctrine,
-  map: GameMap
-): TickDebrief {
+  map: GameMap,
+  knownResources: import("@doctrine/shared").Position[],
+): { debrief: TickDebrief; newKnownResources: import("@doctrine/shared").Position[] } {
+  const newKnownResources: import("@doctrine/shared").Position[] = [];
   const actions = agents.map((agent) =>
-    executeAgent(agent, doctrine, map, tick)
+    executeAgent(agent, doctrine, map, tick, knownResources, newKnownResources),
   );
 
   let resourcesCollected = 0;
@@ -194,11 +222,14 @@ function runTick(
   }
 
   return {
-    tick,
-    timestamp: Date.now(),
-    actions,
-    resourcesCollected,
-    totalResources: 0, // filled in by caller
+    debrief: {
+      tick,
+      timestamp: Date.now(),
+      actions,
+      resourcesCollected,
+      totalResources: 0, // filled in by caller
+    },
+    newKnownResources,
   };
 }
 
@@ -213,6 +244,7 @@ function getPublicState(state: {
   basePosition: { x: number; y: number };
   totalResourcesCollected: number;
   debriefs: TickDebrief[];
+  knownResources: import("@doctrine/shared").Position[];
 }): GameState {
   return {
     phase: state.phase,
@@ -223,5 +255,6 @@ function getPublicState(state: {
     basePosition: state.basePosition,
     totalResourcesCollected: state.totalResourcesCollected,
     debriefs: state.debriefs,
+    knownResources: state.knownResources,
   };
 }

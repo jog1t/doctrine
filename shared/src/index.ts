@@ -65,10 +65,20 @@ export interface GathererDoctrine {
 export interface ScoutDoctrine {
   /** How far from base to patrol */
   patrolRadius: number;
-  /** Whether to move randomly or in a pattern */
-  patrolPattern: "random" | "spiral" | "perimeter";
+  /**
+   * How scouts choose where to move:
+   * - "grid"      — map divided into sectors; each scout owns one and sweeps it
+   * - "perimeter" — walk the outer edge of the patrol radius
+   * - "spiral"    — expanding outward circle
+   */
+  patrolPattern: "grid" | "spiral" | "perimeter";
   /** How many ticks to stay at a position before moving */
   lingerTicks: number;
+  /**
+   * When true, scouts broadcast observed resource positions to a shared list
+   * that gatherers can query when their local searchRadius finds nothing.
+   */
+  reportResourceFinds: boolean;
 }
 
 export interface DefenderDoctrine {
@@ -122,6 +132,11 @@ export interface GameState {
   basePosition: Position;
   totalResourcesCollected: number;
   debriefs: TickDebrief[];
+  /**
+   * Resource positions discovered by scouts (when reportResourceFinds=true).
+   * Gatherers fall back to this list when their local scan finds nothing.
+   */
+  knownResources: Position[];
 }
 
 // --- Default Doctrine ---
@@ -136,8 +151,9 @@ export const DEFAULT_DOCTRINE: Doctrine = {
   },
   scout: {
     patrolRadius: 12,
-    patrolPattern: "random",
+    patrolPattern: "grid",
     lingerTicks: 2,
+    reportResourceFinds: true,
   },
   defender: {
     guardRadius: 4,
@@ -166,11 +182,12 @@ export const DOCTRINE_SCHEMA = {
     },
     scout: {
       type: "object",
-      required: ["patrolRadius", "patrolPattern", "lingerTicks"],
+      required: ["patrolRadius", "patrolPattern", "lingerTicks", "reportResourceFinds"],
       properties: {
         patrolRadius: { type: "number", minimum: 1, maximum: 20 },
-        patrolPattern: { type: "string", enum: ["random", "spiral", "perimeter"] },
+        patrolPattern: { type: "string", enum: ["grid", "spiral", "perimeter"] },
         lingerTicks: { type: "number", minimum: 0, maximum: 10 },
+        reportResourceFinds: { type: "boolean" },
       },
     },
     defender: {
