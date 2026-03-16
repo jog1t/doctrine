@@ -44,7 +44,8 @@
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -132,9 +133,15 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.phase-setup { color: var(--color-info); }
-.phase-running { color: var(--color-success); }
-.phase-paused { color: var(--color-warning); }
+.phase-setup {
+  color: var(--color-info);
+}
+.phase-running {
+  color: var(--color-success);
+}
+.phase-paused {
+  color: var(--color-warning);
+}
 
 /* -- Map -- */
 
@@ -197,7 +204,9 @@ body {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .btn:hover:not(:disabled) {
@@ -386,9 +395,15 @@ body {
   letter-spacing: 1px;
 }
 
-.type-gatherer { color: var(--color-gatherer); }
-.type-scout { color: var(--color-scout); }
-.type-defender { color: var(--color-defender); }
+.type-gatherer {
+  color: var(--color-gatherer);
+}
+.type-scout {
+  color: var(--color-scout);
+}
+.type-defender {
+  color: var(--color-defender);
+}
 
 .action-id {
   color: var(--text-secondary);
@@ -400,13 +415,27 @@ body {
   flex: 1;
 }
 
-.action-move .action-icon { color: var(--color-info); }
-.action-gather .action-icon { color: var(--color-success); }
-.action-deposit .action-icon { color: var(--color-warning); }
+.action-move .action-icon {
+  color: var(--color-info);
+}
+.action-move-intel .action-icon {
+  color: #7ec8e3;
+}
+.action-move-intel .action-desc {
+  color: #7ec8e3;
+  font-style: italic;
+}
+.action-gather .action-icon {
+  color: var(--color-success);
+}
+.action-deposit .action-icon {
+  color: var(--color-warning);
+}
 
 /* -- Loading / Error -- */
 
-.app-loading, .app-error {
+.app-loading,
+.app-error {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -415,13 +444,15 @@ body {
   gap: 16px;
 }
 
-.app-loading h2, .app-error h2 {
+.app-loading h2,
+.app-error h2 {
   font-family: var(--font-serif);
   font-size: 24px;
   letter-spacing: 8px;
 }
 
-.app-loading p, .app-error p {
+.app-loading p,
+.app-error p {
   color: var(--text-muted);
 }
 

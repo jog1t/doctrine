@@ -7,6 +7,7 @@ interface TickDebriefPanelProps {
 
 const ACTION_ICONS: Record<string, string> = {
   move: ">",
+  "move-intel": "»",
   gather: "+",
   deposit: "$",
   observe: "?",

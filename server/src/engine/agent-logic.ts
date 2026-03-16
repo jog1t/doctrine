@@ -152,8 +152,8 @@ function executeGatherer(
     return {
       agentId: agent.id,
       agentType: "gatherer",
-      action: "move",
-      reason: `Moving toward scout-reported resource at (${knownTarget.x}, ${knownTarget.y})`,
+      action: "move-intel",
+      reason: `Intel: scout reported resource at (${knownTarget.x}, ${knownTarget.y})`,
       from: agent.position,
       to: next,
     };
@@ -336,6 +336,7 @@ export function applyAction(action: AgentAction, agents: Agent[], map: GameMap):
 
   switch (action.action) {
     case "move":
+    case "move-intel":
       if (action.to) {
         agent.position = { ...action.to };
         agent.status = "moving";
