@@ -132,6 +132,9 @@ export function App() {
             map={gameState.map}
             agents={gameState.agents}
             basePosition={gameState.basePosition}
+            threats={gameState.threats ?? []}
+            towers={gameState.towers ?? []}
+            doctrine={gameState.doctrine}
           />
           <GameControls
             onTick={handleTick}
@@ -145,7 +148,11 @@ export function App() {
         </div>
         <div className="app-sidebar">
           <DoctrineEditor doctrine={gameState.doctrine} onDeploy={handleDeployDoctrine} />
-          <TickDebriefPanel debrief={latestDebrief} />
+          <TickDebriefPanel
+            debrief={latestDebrief}
+            agents={gameState.agents}
+            doctrine={gameState.doctrine}
+          />
         </div>
       </div>
     </div>

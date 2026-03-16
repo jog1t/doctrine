@@ -1,4 +1,13 @@
-import type { Agent, AgentAction, Doctrine, GameMap, Position } from "@doctrine/shared";
+import type {
+  Agent,
+  AgentAction,
+  Doctrine,
+  EpisodeRecord,
+  GameMap,
+  MemoryConfig,
+  Position,
+  Threat,
+} from "@doctrine/shared";
 
 // --- Utility ---
 
@@ -77,20 +86,44 @@ function findNearestResource(
   return best;
 }
 
-// --- Agent Logic (Tier 0: Stateless, Deterministic) ---
+function findNearestThreat(from: Position, threats: Threat[], maxRange: number): Threat | null {
+  let nearest: Threat | null = null;
+  let nearestDist = Infinity;
+  for (const t of threats) {
+    const d = distance(from, t.position);
+    if (d <= maxRange && d < nearestDist) {
+      nearestDist = d;
+      nearest = t;
+    }
+  }
+  return nearest;
+}
+
+// --- Agent Logic (Tier 1: Working Memory + Tier 2: Episodic Memory) ---
 
 function executeGatherer(
   agent: Agent,
   doctrine: Doctrine,
   map: GameMap,
   knownResources: Position[],
+  tick: number,
+  pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
 ): AgentAction {
   const cfg = doctrine.gatherer;
   const base = doctrine.basePosition;
 
   // If carrying enough, return to base
   if (agent.carrying >= cfg.returnThreshold) {
+    // Clear working memory task if we're returning
+    if (agent.workingMemory.currentTask !== "return") {
+      agent.workingMemory.currentTask = "return";
+      agent.workingMemory.taskTarget = base;
+      agent.workingMemory.taskStartTick = tick;
+    }
     if (distance(agent.position, base) <= 1) {
+      agent.workingMemory.currentTask = null;
+      agent.workingMemory.taskTarget = null;
+      agent.workingMemory.taskStartTick = null;
       return {
         agentId: agent.id,
         agentType: "gatherer",
@@ -98,6 +131,7 @@ function executeGatherer(
         reason: `Carrying ${agent.carrying} resources, at base — depositing`,
         from: agent.position,
         to: base,
+        doctrineVersion: doctrine.version,
       };
     }
     const next = stepToward(agent.position, base, map);
@@ -108,6 +142,7 @@ function executeGatherer(
       reason: `Carrying ${agent.carrying}/${cfg.returnThreshold}, returning to base`,
       from: agent.position,
       to: next,
+      doctrineVersion: doctrine.version,
     };
   }
 
@@ -121,7 +156,40 @@ function executeGatherer(
       reason: `Resource found at current position (${currentTile.resources} remaining)`,
       from: agent.position,
       to: null,
+      doctrineVersion: doctrine.version,
     };
+  }
+
+  // Check if working memory has a committed target
+  if (agent.workingMemory.currentTask === "gather" && agent.workingMemory.taskTarget) {
+    const target = agent.workingMemory.taskTarget;
+    const targetTile = map.tiles[target.y]?.[target.x];
+    if (targetTile?.type === "resource" && targetTile.resources > 0) {
+      // Still valid — commit to it
+      const next = stepToward(agent.position, target, map);
+      return {
+        agentId: agent.id,
+        agentType: "gatherer",
+        action: "move",
+        reason: `Committed to resource at (${target.x}, ${target.y}) [working memory]`,
+        from: agent.position,
+        to: next,
+        doctrineVersion: doctrine.version,
+      };
+    }
+    // Target depleted — record episode, clear working memory
+    pendingEpisodes.push({
+      agentId: agent.id,
+      record: {
+        tick,
+        eventType: "resource-depleted",
+        position: target,
+        detail: `Target at (${target.x}, ${target.y}) was depleted on arrival`,
+      },
+    });
+    agent.workingMemory.currentTask = null;
+    agent.workingMemory.taskTarget = null;
+    agent.workingMemory.taskStartTick = null;
   }
 
   const validKnown = knownResources.filter((pos) => {
@@ -131,44 +199,40 @@ function executeGatherer(
   const knownTarget =
     validKnown.sort((a, b) => distance(agent.position, a) - distance(agent.position, b))[0] ?? null;
 
-  // When preferScoutIntel=true, check intel before local scan
+  // Pick a new target (preferScoutIntel first or local first)
+  let pickedTarget: Position | null = null;
+  let targetSource = "";
+
   if (cfg.preferScoutIntel && knownTarget) {
-    const next = stepToward(agent.position, knownTarget, map);
-    return {
-      agentId: agent.id,
-      agentType: "gatherer",
-      action: "move-intel",
-      reason: `Intel: heading to scout-reported resource at (${knownTarget.x}, ${knownTarget.y})`,
-      from: agent.position,
-      to: next,
-    };
+    pickedTarget = knownTarget;
+    targetSource = "intel";
+  } else {
+    const localTarget = findNearestResource(map, agent.position, cfg.searchRadius, cfg.preferClosest);
+    if (localTarget) {
+      pickedTarget = localTarget;
+      targetSource = "scan";
+    } else if (knownTarget) {
+      pickedTarget = knownTarget;
+      targetSource = "intel";
+    }
   }
 
-  // Local scan
-  const target = findNearestResource(map, agent.position, cfg.searchRadius, cfg.preferClosest);
-
-  if (target) {
-    const next = stepToward(agent.position, target, map);
+  if (pickedTarget) {
+    // Commit to target via working memory
+    agent.workingMemory.currentTask = "gather";
+    agent.workingMemory.taskTarget = pickedTarget;
+    agent.workingMemory.taskStartTick = tick;
+    const next = stepToward(agent.position, pickedTarget, map);
+    const actionType = targetSource === "intel" ? "move-intel" : "move";
+    const reasonPrefix = targetSource === "intel" ? "Intel" : "Scan";
     return {
       agentId: agent.id,
       agentType: "gatherer",
-      action: "move",
-      reason: `Moving toward resource at (${target.x}, ${target.y})`,
+      action: actionType,
+      reason: `${reasonPrefix}: heading to resource at (${pickedTarget.x}, ${pickedTarget.y})`,
       from: agent.position,
       to: next,
-    };
-  }
-
-  // Fallback to intel when local scan finds nothing
-  if (knownTarget) {
-    const next = stepToward(agent.position, knownTarget, map);
-    return {
-      agentId: agent.id,
-      agentType: "gatherer",
-      action: "move-intel",
-      reason: `Intel: scout reported resource at (${knownTarget.x}, ${knownTarget.y})`,
-      from: agent.position,
-      to: next,
+      doctrineVersion: doctrine.version,
     };
   }
 
@@ -179,6 +243,7 @@ function executeGatherer(
     reason: `No resources within search radius ${cfg.searchRadius} and no scout reports`,
     from: agent.position,
     to: null,
+    doctrineVersion: doctrine.version,
   };
 }
 
@@ -188,6 +253,7 @@ function executeScout(
   map: GameMap,
   tick: number,
   newKnownResources: Position[],
+  pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
 ): AgentAction {
   const cfg = doctrine.scout;
   const base = doctrine.basePosition;
@@ -202,7 +268,20 @@ function executeScout(
         if (distance(agent.position, { x, y }) > agent.visionRadius) continue;
         const tile = map.tiles[y][x];
         if (tile.type === "resource" && tile.resources > 0) {
-          newKnownResources.push({ x, y });
+          const isNew = !newKnownResources.some((p) => p.x === x && p.y === y);
+          if (isNew) {
+            newKnownResources.push({ x, y });
+            // Record as episode
+            pendingEpisodes.push({
+              agentId: agent.id,
+              record: {
+                tick,
+                eventType: "resource-found",
+                position: { x, y },
+                detail: `Found resource node at (${x}, ${y}) with ${tile.resources} units`,
+              },
+            });
+          }
         }
       }
     }
@@ -212,7 +291,6 @@ function executeScout(
   let targetPos: Position;
 
   if (cfg.patrolPattern === "grid") {
-    // Divide map into sectors; each scout owns one by index and sweeps it systematically.
     const scoutIndex = parseInt(agent.id.split("-")[1] || "0");
     const cols = 2;
     const sectorW = Math.floor(map.width / cols);
@@ -222,7 +300,6 @@ function executeScout(
     const sectorX = col * sectorW;
     const sectorY = row * sectorH;
 
-    // Walk sector in a boustrophedon (snake) pattern based on tick
     const cellsInSector = sectorW * sectorH;
     const cellIndex = (tick + hashString(agent.id)) % cellsInSector;
     const localRow = Math.floor(cellIndex / sectorW);
@@ -232,7 +309,6 @@ function executeScout(
       y: clamp(sectorY + localRow, 0, map.height - 1),
     };
   } else if (cfg.patrolPattern === "perimeter") {
-    // Walk the perimeter of the patrol radius
     const perimeterLength = cfg.patrolRadius * 8;
     const pos = (tick + hashString(agent.id)) % perimeterLength;
     const side = Math.floor(pos / (perimeterLength / 4));
@@ -258,7 +334,7 @@ function executeScout(
       y: clamp(Math.round(targetPos.y), 0, map.height - 1),
     };
   } else {
-    // Spiral: expanding circle
+    // Spiral
     const spiralTick = tick + hashString(agent.id);
     const radius = (spiralTick % cfg.patrolRadius) + 1;
     const angle = (spiralTick * 0.5) % (2 * Math.PI);
@@ -268,7 +344,16 @@ function executeScout(
     };
   }
 
-  // Linger logic — stay if close to target and within linger period
+  // Working memory: commit to patrol target to avoid constant micro-oscillation
+  if (
+    !agent.workingMemory.currentTask ||
+    agent.workingMemory.currentTask === "patrol"
+  ) {
+    agent.workingMemory.currentTask = "patrol";
+    agent.workingMemory.taskTarget = targetPos;
+  }
+
+  // Linger logic
   if (distance(agent.position, targetPos) <= 1 && tick % (cfg.lingerTicks + 1) !== 0) {
     return {
       agentId: agent.id,
@@ -277,6 +362,7 @@ function executeScout(
       reason: `Observing area around (${agent.position.x}, ${agent.position.y})`,
       from: agent.position,
       to: null,
+      doctrineVersion: doctrine.version,
     };
   }
 
@@ -288,13 +374,71 @@ function executeScout(
     reason: `Patrolling (${cfg.patrolPattern}) toward (${targetPos.x}, ${targetPos.y})`,
     from: agent.position,
     to: next,
+    doctrineVersion: doctrine.version,
   };
 }
 
-function executeDefender(agent: Agent, doctrine: Doctrine, map: GameMap): AgentAction {
+function executeDefender(
+  agent: Agent,
+  doctrine: Doctrine,
+  map: GameMap,
+  threats: Threat[],
+  tick: number,
+  pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
+): AgentAction {
   const cfg = doctrine.defender;
   const base = doctrine.basePosition;
   const distFromBase = distance(agent.position, base);
+
+  // Check for nearby threats within vision radius
+  const visibleThreat = findNearestThreat(agent.position, threats, agent.visionRadius);
+
+  if (visibleThreat) {
+    const threatDist = distance(agent.position, visibleThreat.position);
+
+    // Record threat sighting as episode if not already recorded recently
+    const recentSpot = agent.episodes.some(
+      (e) =>
+        e.eventType === "threat-spotted" &&
+        e.position.x === visibleThreat.position.x &&
+        e.position.y === visibleThreat.position.y &&
+        tick - e.tick < 5,
+    );
+    if (!recentSpot) {
+      pendingEpisodes.push({
+        agentId: agent.id,
+        record: {
+          tick,
+          eventType: "threat-spotted",
+          position: visibleThreat.position,
+          detail: `Spotted threat ${visibleThreat.id} at distance ${threatDist}`,
+        },
+      });
+    }
+
+    if (cfg.chaseThreats && threatDist <= cfg.maxChaseDistance) {
+      // Commit to chasing via working memory
+      agent.workingMemory.currentTask = "chase";
+      agent.workingMemory.taskTarget = visibleThreat.position;
+      agent.workingMemory.taskStartTick ??= tick;
+
+      const next = stepToward(agent.position, visibleThreat.position, map);
+      return {
+        agentId: agent.id,
+        agentType: "defender",
+        action: "move",
+        reason: `Engaging threat ${visibleThreat.id} at (${visibleThreat.position.x}, ${visibleThreat.position.y})`,
+        from: agent.position,
+        to: next,
+        doctrineVersion: doctrine.version,
+      };
+    }
+  } else if (agent.workingMemory.currentTask === "chase") {
+    // Lost sight of threat — clear working memory
+    agent.workingMemory.currentTask = null;
+    agent.workingMemory.taskTarget = null;
+    agent.workingMemory.taskStartTick = null;
+  }
 
   // If too far from guard post, return
   if (distFromBase > cfg.guardRadius) {
@@ -306,10 +450,10 @@ function executeDefender(agent: Agent, doctrine: Doctrine, map: GameMap): AgentA
       reason: `Too far from base (${distFromBase} > ${cfg.guardRadius}), returning`,
       from: agent.position,
       to: next,
+      doctrineVersion: doctrine.version,
     };
   }
 
-  // Hold position (no threats in Milestone 1 — just demonstrate the posture)
   return {
     agentId: agent.id,
     agentType: "defender",
@@ -317,6 +461,7 @@ function executeDefender(agent: Agent, doctrine: Doctrine, map: GameMap): AgentA
     reason: `Holding position within guard radius (${distFromBase}/${cfg.guardRadius})`,
     from: agent.position,
     to: null,
+    doctrineVersion: doctrine.version,
   };
 }
 
@@ -329,19 +474,27 @@ export function executeAgent(
   tick: number,
   knownResources: Position[],
   newKnownResources: Position[],
+  threats: Threat[],
+  pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
 ): AgentAction {
   switch (agent.type) {
     case "gatherer":
-      return executeGatherer(agent, doctrine, map, knownResources);
+      return executeGatherer(agent, doctrine, map, knownResources, tick, pendingEpisodes);
     case "scout":
-      return executeScout(agent, doctrine, map, tick, newKnownResources);
+      return executeScout(agent, doctrine, map, tick, newKnownResources, pendingEpisodes);
     case "defender":
-      return executeDefender(agent, doctrine, map);
+      return executeDefender(agent, doctrine, map, threats, tick, pendingEpisodes);
   }
 }
 
 /** Apply an action's effects to the mutable game state. */
-export function applyAction(action: AgentAction, agents: Agent[], map: GameMap): number {
+export function applyAction(
+  action: AgentAction,
+  agents: Agent[],
+  map: GameMap,
+  tick: number,
+  pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
+): number {
   const agent = agents.find((a) => a.id === action.agentId);
   if (!agent) return 0;
 
@@ -364,6 +517,16 @@ export function applyAction(action: AgentAction, agents: Agent[], map: GameMap):
         agent.status = "gathering";
         if (tile.resources === 0) {
           tile.type = "empty";
+          // Record depletion episode
+          pendingEpisodes.push({
+            agentId: agent.id,
+            record: {
+              tick,
+              eventType: "resource-depleted",
+              position: { ...agent.position },
+              detail: `Exhausted resource node at (${agent.position.x}, ${agent.position.y})`,
+            },
+          });
         }
       }
       break;
@@ -373,6 +536,15 @@ export function applyAction(action: AgentAction, agents: Agent[], map: GameMap):
       collected = agent.carrying;
       agent.carrying = 0;
       agent.status = "returning";
+      pendingEpisodes.push({
+        agentId: agent.id,
+        record: {
+          tick,
+          eventType: "task-completed",
+          position: { ...agent.position },
+          detail: `Deposited ${collected} resources at base`,
+        },
+      });
       break;
 
     case "observe":
@@ -389,6 +561,103 @@ export function applyAction(action: AgentAction, agents: Agent[], map: GameMap):
   }
 
   return collected;
+}
+
+/** Apply episodic memory updates and decay to all agents. */
+export function applyMemoryUpdates(
+  agents: Agent[],
+  doctrine: Doctrine,
+  pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
+  tick: number,
+): void {
+  // Group pending episodes by agent
+  const byAgent = new Map<string, EpisodeRecord[]>();
+  for (const { agentId, record } of pendingEpisodes) {
+    if (!byAgent.has(agentId)) byAgent.set(agentId, []);
+    byAgent.get(agentId)!.push(record);
+  }
+
+  for (const agent of agents) {
+    const newEpisodes = byAgent.get(agent.id) ?? [];
+    const memCfg = getMemoryConfig(agent.type, doctrine);
+
+    // Append new episodes
+    agent.episodes.push(...newEpisodes);
+
+    // Decay: drop episodes older than decayAfterTicks
+    if (memCfg.decayAfterTicks > 0) {
+      agent.episodes = agent.episodes.filter((e) => tick - e.tick <= memCfg.decayAfterTicks);
+    }
+
+    // Trim to maxEpisodes (keep most recent)
+    if (memCfg.maxEpisodes > 0 && agent.episodes.length > memCfg.maxEpisodes) {
+      agent.episodes = agent.episodes.slice(-memCfg.maxEpisodes);
+    }
+  }
+}
+
+function getMemoryConfig(type: string, doctrine: Doctrine): MemoryConfig {
+  switch (type) {
+    case "gatherer":
+      return doctrine.gatherer.memory;
+    case "scout":
+      return doctrine.scout.memory;
+    case "defender":
+      return doctrine.defender.memory;
+    default:
+      return { maxEpisodes: 10, decayAfterTicks: 30 };
+  }
+}
+
+/** Move a threat one step toward the nearest agent. Returns true if threat hit something. */
+export function moveThreat(threat: Threat, agents: Agent[], map: GameMap): void {
+  if (agents.length === 0) return;
+
+  // Find nearest agent
+  let nearest = agents[0];
+  let nearestDist = distance(threat.position, agents[0].position);
+  for (const a of agents) {
+    const d = distance(threat.position, a.position);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = a;
+    }
+  }
+
+  if (nearestDist === 0) return; // already on same tile
+  threat.position = stepToward(threat.position, nearest.position, map);
+}
+
+/** Deal damage from threats to agents on same tile. Returns list of killed agent IDs. */
+export function applyThreatDamage(
+  threats: Threat[],
+  agents: Agent[],
+  tick: number,
+  pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
+): string[] {
+  const killed: string[] = [];
+
+  for (const threat of threats) {
+    for (const agent of agents) {
+      if (agent.position.x === threat.position.x && agent.position.y === threat.position.y) {
+        agent.hp -= 1;
+        pendingEpisodes.push({
+          agentId: agent.id,
+          record: {
+            tick,
+            eventType: "damage-taken",
+            position: { ...agent.position },
+            detail: `Took 1 damage from ${threat.id} (${agent.hp}/${agent.maxHp} HP remaining)`,
+          },
+        });
+        if (agent.hp <= 0) {
+          killed.push(agent.id);
+        }
+      }
+    }
+  }
+
+  return killed;
 }
 
 // --- Helpers ---

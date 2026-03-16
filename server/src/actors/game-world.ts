@@ -3,19 +3,28 @@ import type {
   Agent,
   AgentType,
   Doctrine,
+  EpisodeRecord,
   GameMap,
   GamePhase,
   GameState,
+  Position,
   TickDebrief,
+  Threat,
+  Tower,
 } from "@doctrine/shared";
 import { DEFAULT_DOCTRINE } from "@doctrine/shared";
 import { generateMap } from "../engine/map-generator.js";
-import { executeAgent, applyAction } from "../engine/agent-logic.js";
+import {
+  applyAction,
+  applyMemoryUpdates,
+  applyThreatDamage,
+  executeAgent,
+  moveThreat,
+} from "../engine/agent-logic.js";
 
 // --- Initial agent placement ---
 
-function createAgent(id: string, type: AgentType, base: { x: number; y: number }): Agent {
-  // Spread agents around the base
+function createAgent(id: string, type: AgentType, base: { x: number; y: number }, doctrineVersion: number): Agent {
   const offsets: Record<AgentType, { x: number; y: number }[]> = {
     gatherer: [
       { x: -1, y: 0 },
@@ -47,19 +56,68 @@ function createAgent(id: string, type: AgentType, base: { x: number; y: number }
     maxHp: type === "defender" ? 10 : 5,
     target: null,
     visionRadius: type === "scout" ? 6 : 3,
+    workingMemory: { currentTask: null, taskTarget: null, taskStartTick: null },
+    episodes: [],
+    deployedDoctrineVersion: doctrineVersion,
   };
 }
 
-function createInitialAgents(base: { x: number; y: number }): Agent[] {
+function createInitialAgents(base: { x: number; y: number }, doctrineVersion: number): Agent[] {
   return [
-    createAgent("gatherer-0", "gatherer", base),
-    createAgent("gatherer-1", "gatherer", base),
-    createAgent("gatherer-2", "gatherer", base),
-    createAgent("scout-0", "scout", base),
-    createAgent("scout-1", "scout", base),
-    createAgent("defender-0", "defender", base),
-    createAgent("defender-1", "defender", base),
+    createAgent("gatherer-0", "gatherer", base, doctrineVersion),
+    createAgent("gatherer-1", "gatherer", base, doctrineVersion),
+    createAgent("gatherer-2", "gatherer", base, doctrineVersion),
+    createAgent("scout-0", "scout", base, doctrineVersion),
+    createAgent("scout-1", "scout", base, doctrineVersion),
+    createAgent("defender-0", "defender", base, doctrineVersion),
+    createAgent("defender-1", "defender", base, doctrineVersion),
   ];
+}
+
+// --- Threat spawning ---
+
+const THREAT_SPAWN_INTERVAL = 20; // ticks between threat spawns
+const MAX_THREATS = 3;
+
+function spawnThreat(id: string, map: GameMap): Threat {
+  // Spawn at a random map edge (deterministic per id to avoid Math.random)
+  const hash = hashId(id);
+  const edge = hash % 4;
+  let x: number;
+  let y: number;
+  switch (edge) {
+    case 0:
+      x = hash % map.width;
+      y = 0;
+      break;
+    case 1:
+      x = map.width - 1;
+      y = hash % map.height;
+      break;
+    case 2:
+      x = hash % map.width;
+      y = map.height - 1;
+      break;
+    default:
+      x = 0;
+      y = hash % map.height;
+      break;
+  }
+  return { id, position: { x, y }, hp: 3, maxHp: 3 };
+}
+
+function hashId(str: string): number {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+// --- Tower construction ---
+
+function createInitialTower(base: Position): Tower {
+  return { id: "tower-0", position: { ...base }, broadcastRadius: 8 };
 }
 
 // --- Actor definition ---
@@ -71,27 +129,26 @@ export const gameWorld = actor({
     map: null as GameMap | null,
     agents: [] as Agent[],
     doctrine: DEFAULT_DOCTRINE as Doctrine,
+    previousDoctrine: null as Doctrine | null,
     basePosition: DEFAULT_DOCTRINE.basePosition,
     totalResourcesCollected: 0,
-    /** Keep last N debriefs for review */
     debriefs: [] as TickDebrief[],
-    /** Map seed for reproducibility */
     seed: 0,
-    /** Tick interval in ms (configurable) */
     tickIntervalMs: 1000,
-    /** Whether auto-tick is running */
     autoTick: false,
-    /** Resource positions discovered by scouts (reportResourceFinds=true) */
-    knownResources: [] as import("@doctrine/shared").Position[],
+    knownResources: [] as Position[],
+    threats: [] as Threat[],
+    towers: [] as Tower[],
+    nextThreatId: 0,
   },
 
   actions: {
-    /** Initialize a new game session */
     initGame: (c, seed?: number) => {
       const gameSeed = seed ?? Date.now();
       const map = generateMap(gameSeed);
       const base = c.state.doctrine.basePosition;
-      const agents = createInitialAgents(base);
+      const docVersion = c.state.doctrine.version;
+      const agents = createInitialAgents(base, docVersion);
 
       c.state.phase = "setup";
       c.state.tick = 0;
@@ -102,15 +159,32 @@ export const gameWorld = actor({
       c.state.seed = gameSeed;
       c.state.autoTick = false;
       c.state.knownResources = [];
+      c.state.threats = [];
+      c.state.towers = [createInitialTower(base)];
+      c.state.nextThreatId = 0;
+      c.state.previousDoctrine = null;
 
       c.broadcast("gameInitialized", getPublicState(c.state));
       return getPublicState(c.state);
     },
 
-    /** Deploy new doctrine configuration */
     deployDoctrine: (c, doctrine: Doctrine) => {
-      c.state.doctrine = { ...doctrine, version: (c.state.doctrine.version || 0) + 1 };
+      // Save previous doctrine for agents who haven't received the update yet
+      c.state.previousDoctrine = c.state.doctrine;
+
+      const newVersion = (c.state.doctrine.version || 0) + 1;
+      c.state.doctrine = { ...doctrine, version: newVersion };
       c.state.basePosition = doctrine.basePosition;
+
+      // Immediately update agents within any tower's broadcast radius
+      for (const agent of c.state.agents) {
+        for (const tower of c.state.towers) {
+          if (manhattanDist(agent.position, tower.position) <= tower.broadcastRadius) {
+            agent.deployedDoctrineVersion = newVersion;
+            break;
+          }
+        }
+      }
 
       c.broadcast("doctrineDeployed", {
         doctrine: c.state.doctrine,
@@ -119,24 +193,37 @@ export const gameWorld = actor({
       return c.state.doctrine;
     },
 
-    /** Execute a single game tick */
     executeTick: (c) => {
       if (!c.state.map) {
         throw new Error("Game not initialized");
       }
 
+      // Migrate persisted doctrine that may predate newer fields
+      c.state.doctrine = normalizeDoctrine(c.state.doctrine);
+
       c.state.tick += 1;
       c.state.phase = "running";
 
-      const { debrief, newKnownResources } = runTick(
+      // Spawn new threat periodically
+      if (
+        c.state.tick % THREAT_SPAWN_INTERVAL === 0 &&
+        c.state.threats.length < MAX_THREATS
+      ) {
+        const threatId = `threat-${c.state.nextThreatId++}`;
+        c.state.threats.push(spawnThreat(threatId, c.state.map));
+      }
+
+      const { debrief, newKnownResources, killedAgentIds } = runTick(
         c.state.tick,
         c.state.agents,
         c.state.doctrine,
+        c.state.previousDoctrine,
         c.state.map,
         c.state.knownResources,
+        c.state.threats,
       );
 
-      // Merge scout discoveries into shared list (deduplicated)
+      // Merge scout discoveries
       for (const pos of newKnownResources) {
         const already = c.state.knownResources.some((k) => k.x === pos.x && k.y === pos.y);
         if (!already) c.state.knownResources.push(pos);
@@ -148,8 +235,33 @@ export const gameWorld = actor({
         return tile.type === "resource" && tile.resources > 0;
       });
 
+      // Hard death: remove killed agents (episodic memory is gone with them)
+      if (killedAgentIds.length > 0) {
+        const killedSet = new Set(killedAgentIds);
+        c.state.agents = c.state.agents.filter((a) => !killedSet.has(a.id));
+        debrief.notices.push(
+          ...killedAgentIds.map((id) => `FALLEN: ${id} was destroyed — all episodic memory lost`),
+        );
+      }
+
       c.state.totalResourcesCollected += debrief.resourcesCollected;
       debrief.totalResources = c.state.totalResourcesCollected;
+
+      // Tower broadcast: each tick update agents within tower range to current doctrine
+      const currentVersion = c.state.doctrine.version;
+      for (const agent of c.state.agents) {
+        if (agent.deployedDoctrineVersion < currentVersion) {
+          for (const tower of c.state.towers) {
+            if (manhattanDist(agent.position, tower.position) <= tower.broadcastRadius) {
+              agent.deployedDoctrineVersion = currentVersion;
+              debrief.notices.push(
+                `SYNC: ${agent.id} received doctrine v${currentVersion} from tower at (${tower.position.x}, ${tower.position.y})`,
+              );
+              break;
+            }
+          }
+        }
+      }
 
       // Keep last 50 debriefs
       c.state.debriefs.push(debrief);
@@ -165,7 +277,6 @@ export const gameWorld = actor({
       return { state: getPublicState(c.state), debrief };
     },
 
-    /** Start automatic tick execution */
     startAutoTick: (c) => {
       if (!c.state.map) throw new Error("Game not initialized");
       c.state.autoTick = true;
@@ -174,7 +285,6 @@ export const gameWorld = actor({
       return { autoTick: true };
     },
 
-    /** Stop automatic tick execution */
     stopAutoTick: (c) => {
       c.state.autoTick = false;
       c.state.phase = "paused";
@@ -182,18 +292,15 @@ export const gameWorld = actor({
       return { autoTick: false };
     },
 
-    /** Get current game state */
     getState: (c) => {
       return getPublicState(c.state);
     },
 
-    /** Get recent debriefs */
     getDebriefs: (c, count?: number) => {
       const n = count ?? 10;
       return c.state.debriefs.slice(-n);
     },
 
-    /** Set tick speed */
     setTickInterval: (c, ms: number) => {
       c.state.tickIntervalMs = Math.max(100, Math.min(5000, ms));
       c.broadcast("tickIntervalChanged", { tickIntervalMs: c.state.tickIntervalMs });
@@ -204,22 +311,72 @@ export const gameWorld = actor({
 
 // --- Tick execution ---
 
+function detectRedundancyNotices(actions: import("@doctrine/shared").AgentAction[]): string[] {
+  const notices: string[] = [];
+  const moveActions = actions.filter(
+    (a) => a.to && (a.action === "move" || a.action === "move-intel"),
+  );
+
+  const byTarget = new Map<string, import("@doctrine/shared").AgentAction[]>();
+  for (const action of moveActions) {
+    const key = `${action.to!.x},${action.to!.y}`;
+    if (!byTarget.has(key)) byTarget.set(key, []);
+    byTarget.get(key)!.push(action);
+  }
+
+  for (const [pos, acts] of byTarget) {
+    if (acts.length > 1) {
+      const ids = acts.map((a) => a.agentId).join(", ");
+      notices.push(`REDUNDANT: ${ids} all moving to (${pos}) — consider spreading agents`);
+    }
+  }
+
+  return notices;
+}
+
 function runTick(
   tick: number,
   agents: Agent[],
   doctrine: Doctrine,
+  previousDoctrine: Doctrine | null,
   map: GameMap,
-  knownResources: import("@doctrine/shared").Position[],
-): { debrief: TickDebrief; newKnownResources: import("@doctrine/shared").Position[] } {
-  const newKnownResources: import("@doctrine/shared").Position[] = [];
-  const actions = agents.map((agent) =>
-    executeAgent(agent, doctrine, map, tick, knownResources, newKnownResources),
-  );
+  knownResources: Position[],
+  threats: Threat[],
+): {
+  debrief: TickDebrief;
+  newKnownResources: Position[];
+  killedAgentIds: string[];
+} {
+  const newKnownResources: Position[] = [];
+  const pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }> = [];
 
+  // Execute agent decisions (each uses their own doctrine version)
+  const actions = agents.map((agent) => {
+    const agentDoctrine =
+      agent.deployedDoctrineVersion >= doctrine.version
+        ? doctrine
+        : (previousDoctrine ?? doctrine);
+    return executeAgent(agent, agentDoctrine, map, tick, knownResources, newKnownResources, threats, pendingEpisodes);
+  });
+
+  // Apply actions
   let resourcesCollected = 0;
   for (const action of actions) {
-    resourcesCollected += applyAction(action, agents, map);
+    resourcesCollected += applyAction(action, agents, map, tick, pendingEpisodes);
   }
+
+  // Move threats toward agents
+  for (const threat of threats) {
+    moveThreat(threat, agents, map);
+  }
+
+  // Deal damage from threats
+  const killedAgentIds = applyThreatDamage(threats, agents, tick, pendingEpisodes);
+
+  // Apply episodic memory updates and decay
+  applyMemoryUpdates(agents, doctrine, pendingEpisodes, tick);
+
+  const notices = detectRedundancyNotices(actions);
 
   return {
     debrief: {
@@ -227,13 +384,30 @@ function runTick(
       timestamp: Date.now(),
       actions,
       resourcesCollected,
-      totalResources: 0, // filled in by caller
+      totalResources: 0,
+      notices,
     },
     newKnownResources,
+    killedAgentIds,
   };
 }
 
 // --- Helpers ---
+
+function manhattanDist(a: Position, b: Position): number {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+/** Fill in any missing fields from DEFAULT_DOCTRINE so old persisted state doesn't crash. */
+function normalizeDoctrine(doctrine: Doctrine): Doctrine {
+  return {
+    ...DEFAULT_DOCTRINE,
+    ...doctrine,
+    gatherer: { ...DEFAULT_DOCTRINE.gatherer, ...doctrine.gatherer },
+    scout: { ...DEFAULT_DOCTRINE.scout, ...doctrine.scout },
+    defender: { ...DEFAULT_DOCTRINE.defender, ...doctrine.defender },
+  };
+}
 
 function getPublicState(state: {
   phase: GamePhase;
@@ -241,20 +415,26 @@ function getPublicState(state: {
   map: GameMap | null;
   agents: Agent[];
   doctrine: Doctrine;
+  previousDoctrine: Doctrine | null;
   basePosition: { x: number; y: number };
   totalResourcesCollected: number;
   debriefs: TickDebrief[];
-  knownResources: import("@doctrine/shared").Position[];
+  knownResources: Position[];
+  threats: Threat[];
+  towers: Tower[];
 }): GameState {
   return {
     phase: state.phase,
     tick: state.tick,
     map: state.map!,
     agents: state.agents,
-    doctrine: state.doctrine,
+    doctrine: normalizeDoctrine(state.doctrine),
+    previousDoctrine: state.previousDoctrine ? normalizeDoctrine(state.previousDoctrine) : null,
     basePosition: state.basePosition,
     totalResourcesCollected: state.totalResourcesCollected,
     debriefs: state.debriefs,
     knownResources: state.knownResources,
+    threats: state.threats,
+    towers: state.towers,
   };
 }

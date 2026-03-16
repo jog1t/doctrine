@@ -1,18 +1,21 @@
 import React from "react";
-import type { GameMap, Agent, Position } from "@doctrine/shared";
+import type { Agent, Doctrine, GameMap, Position, Threat, Tower } from "@doctrine/shared";
 
 interface MapViewProps {
   map: GameMap;
   agents: Agent[];
   basePosition: Position;
+  threats: Threat[];
+  towers: Tower[];
+  doctrine: Doctrine;
 }
 
 const TILE_SIZE = 22;
 
 const TILE_COLORS: Record<string, string> = {
   empty: "#2a2a28",
-  resource: "#4a6741",
-  obstacle: "#1a1a18",
+  resource: "#3d5c38",
+  obstacle: "#141412",
 };
 
 const AGENT_COLORS: Record<string, string> = {
@@ -21,16 +24,16 @@ const AGENT_COLORS: Record<string, string> = {
   defender: "#c45a5a",
 };
 
-const STATUS_SHAPES: Record<string, string> = {
-  idle: "circle",
-  moving: "triangle",
-  gathering: "diamond",
-  scouting: "circle",
-  defending: "square",
-  returning: "triangle",
-};
+function memoryLoad(agent: Agent, doctrine: Doctrine): number {
+  let maxEpisodes = 10;
+  if (agent.type === "gatherer") maxEpisodes = doctrine.gatherer.memory.maxEpisodes;
+  else if (agent.type === "scout") maxEpisodes = doctrine.scout.memory.maxEpisodes;
+  else if (agent.type === "defender") maxEpisodes = doctrine.defender.memory.maxEpisodes;
+  if (maxEpisodes === 0) return 0;
+  return Math.min(1, agent.episodes.length / maxEpisodes);
+}
 
-export function MapView({ map, agents, basePosition }: MapViewProps) {
+export function MapView({ map, agents, basePosition, threats, towers, doctrine }: MapViewProps) {
   if (!map) return null;
 
   const width = map.width * TILE_SIZE;
@@ -39,39 +42,75 @@ export function MapView({ map, agents, basePosition }: MapViewProps) {
   return (
     <div className="map-container">
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="map-svg">
+        <defs>
+          {/* Hatch pattern for obstacles */}
+          <pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="4" stroke="#252520" strokeWidth="1.5" />
+          </pattern>
+        </defs>
+
         {/* Tiles */}
         {map.tiles.map((row, y) =>
           row.map((tile, x) => (
-            <rect
-              key={`${x}-${y}`}
-              x={x * TILE_SIZE}
-              y={y * TILE_SIZE}
-              width={TILE_SIZE}
-              height={TILE_SIZE}
-              fill={TILE_COLORS[tile.type]}
-              stroke="#1a1a18"
-              strokeWidth={0.5}
-            >
+            <g key={`${x}-${y}`}>
+              <rect
+                x={x * TILE_SIZE}
+                y={y * TILE_SIZE}
+                width={TILE_SIZE}
+                height={TILE_SIZE}
+                fill={TILE_COLORS[tile.type]}
+                stroke="#1a1a18"
+                strokeWidth={0.5}
+              />
+              {tile.type === "obstacle" && (
+                <rect
+                  x={x * TILE_SIZE}
+                  y={y * TILE_SIZE}
+                  width={TILE_SIZE}
+                  height={TILE_SIZE}
+                  fill="url(#hatch)"
+                  stroke="#1a1a18"
+                  strokeWidth={0.5}
+                />
+              )}
               {tile.type === "resource" && <title>Resource: {tile.resources}</title>}
-            </rect>
+            </g>
           )),
         )}
 
         {/* Resource indicators */}
         {map.tiles.flatMap((row, y) =>
-          row.map((tile, x) =>
-            tile.type === "resource" && tile.resources > 0 ? (
+          row.map((tile, x) => {
+            if (tile.type !== "resource" || tile.resources <= 0) return null;
+            const frac = tile.resources / 10;
+            const r = Math.max(2, frac * (TILE_SIZE / 3));
+            return (
               <circle
                 key={`res-${x}-${y}`}
                 cx={x * TILE_SIZE + TILE_SIZE / 2}
                 cy={y * TILE_SIZE + TILE_SIZE / 2}
-                r={Math.max(2, (tile.resources / 10) * (TILE_SIZE / 3))}
+                r={r}
                 fill="#6a9761"
-                opacity={0.7}
+                opacity={0.4 + frac * 0.5}
               />
-            ) : null,
-          ),
+            );
+          }),
         )}
+
+        {/* Tower broadcast radius */}
+        {towers.map((tower) => (
+          <circle
+            key={`tower-range-${tower.id}`}
+            cx={tower.position.x * TILE_SIZE + TILE_SIZE / 2}
+            cy={tower.position.y * TILE_SIZE + TILE_SIZE / 2}
+            r={tower.broadcastRadius * TILE_SIZE}
+            fill="none"
+            stroke="#e8d5b0"
+            strokeWidth={0.5}
+            strokeDasharray="4,4"
+            opacity={0.2}
+          />
+        ))}
 
         {/* Base */}
         <rect
@@ -97,24 +136,139 @@ export function MapView({ map, agents, basePosition }: MapViewProps) {
           B
         </text>
 
+        {/* Towers */}
+        {towers.map((tower) => (
+          <g key={tower.id}>
+            <rect
+              x={tower.position.x * TILE_SIZE + 4}
+              y={tower.position.y * TILE_SIZE + 4}
+              width={TILE_SIZE - 8}
+              height={TILE_SIZE - 8}
+              fill="#3a3a30"
+              stroke="#e8d5b0"
+              strokeWidth={1.5}
+            />
+            <text
+              x={tower.position.x * TILE_SIZE + TILE_SIZE / 2}
+              y={tower.position.y * TILE_SIZE + TILE_SIZE / 2 + 1}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fill="#e8d5b0"
+              fontSize={6}
+              fontFamily="IBM Plex Mono"
+              fontWeight={600}
+            >
+              T
+            </text>
+            <title>Tower — broadcasts doctrine within radius {tower.broadcastRadius}</title>
+          </g>
+        ))}
+
+        {/* Threats */}
+        {threats.map((threat) => {
+          const cx = threat.position.x * TILE_SIZE + TILE_SIZE / 2;
+          const cy = threat.position.y * TILE_SIZE + TILE_SIZE / 2;
+          const r = 5;
+          return (
+            <g key={threat.id}>
+              {/* X shape */}
+              <line
+                x1={cx - r}
+                y1={cy - r}
+                x2={cx + r}
+                y2={cy + r}
+                stroke="#c43a3a"
+                strokeWidth={2}
+              />
+              <line
+                x1={cx + r}
+                y1={cy - r}
+                x2={cx - r}
+                y2={cy + r}
+                stroke="#c43a3a"
+                strokeWidth={2}
+              />
+              <title>
+                {threat.id} — HP {threat.hp}/{threat.maxHp}
+              </title>
+            </g>
+          );
+        })}
+
         {/* Agents */}
         {agents.map((agent) => {
           const cx = agent.position.x * TILE_SIZE + TILE_SIZE / 2;
           const cy = agent.position.y * TILE_SIZE + TILE_SIZE / 2;
           const color = AGENT_COLORS[agent.type];
           const r = 5;
+          const load = memoryLoad(agent, doctrine);
 
           return (
             <g key={agent.id}>
+              {/* Memory load ring — grows brighter as episodes accumulate */}
+              {load > 0 && (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={r + 3}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={1.5}
+                  opacity={load * 0.7}
+                />
+              )}
+              {/* Stale doctrine indicator (running old version) */}
+              {agent.deployedDoctrineVersion < (doctrine?.version ?? 1) && (
+                <circle
+                  cx={cx + 6}
+                  cy={cy - 6}
+                  r={2.5}
+                  fill="#e8a030"
+                  opacity={0.9}
+                />
+              )}
               {/* Agent shape */}
               {renderAgentShape(cx, cy, r, agent.status, color)}
-              {/* Carrying indicator for gatherers */}
+              {/* Carrying amount for gatherers */}
               {agent.type === "gatherer" && agent.carrying > 0 && (
-                <circle cx={cx + 5} cy={cy - 5} r={2} fill="#e8d5b0" />
+                <text
+                  x={cx + r + 1}
+                  y={cy - r}
+                  fontSize={6}
+                  fontFamily="IBM Plex Mono"
+                  fontWeight={600}
+                  fill="#e8d5b0"
+                  textAnchor="start"
+                  dominantBaseline="auto"
+                >
+                  {agent.carrying}
+                </text>
+              )}
+              {/* HP bar — only shown when damaged */}
+              {agent.hp < agent.maxHp && (
+                <g>
+                  <rect
+                    x={cx - r}
+                    y={cy + r + 2}
+                    width={r * 2}
+                    height={2}
+                    fill="#3a3a36"
+                    rx={1}
+                  />
+                  <rect
+                    x={cx - r}
+                    y={cy + r + 2}
+                    width={r * 2 * (agent.hp / agent.maxHp)}
+                    height={2}
+                    fill={agent.hp / agent.maxHp > 0.5 ? "#6a9761" : "#c45a5a"}
+                    rx={1}
+                  />
+                </g>
               )}
               <title>
-                {agent.id} [{agent.status}]
+                {agent.id} [{agent.status}] v{agent.deployedDoctrineVersion}
                 {agent.carrying > 0 ? ` carrying: ${agent.carrying}` : ""}
+                {` memory: ${agent.episodes.length} episodes`}
               </title>
             </g>
           );
@@ -128,7 +282,6 @@ function renderAgentShape(cx: number, cy: number, r: number, status: string, col
   switch (status) {
     case "moving":
     case "returning":
-      // Triangle
       return (
         <polygon
           points={`${cx},${cy - r} ${cx - r},${cy + r} ${cx + r},${cy + r}`}
@@ -137,7 +290,6 @@ function renderAgentShape(cx: number, cy: number, r: number, status: string, col
         />
       );
     case "gathering":
-      // Diamond
       return (
         <polygon
           points={`${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`}
@@ -146,7 +298,6 @@ function renderAgentShape(cx: number, cy: number, r: number, status: string, col
         />
       );
     case "defending":
-      // Square
       return (
         <rect
           x={cx - r + 1}
@@ -158,7 +309,6 @@ function renderAgentShape(cx: number, cy: number, r: number, status: string, col
         />
       );
     default:
-      // Circle (idle, scouting)
       return <circle cx={cx} cy={cy} r={r} fill={color} opacity={0.9} />;
   }
 }
