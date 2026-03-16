@@ -17,7 +17,6 @@ export default defineConfig({
         target: "http://localhost:6420",
         changeOrigin: true,
         ws: true,
-        rewrite: (path) => path.replace(/^\/api\/rivet/, ""),
       },
     },
   },

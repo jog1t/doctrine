@@ -1,17 +1,25 @@
 {
   "name": "doctrine",
   "private": true,
-  "workspaces": ["server", "client", "shared"],
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:server": "npm run dev -w server",
-    "dev:client": "npm run dev -w client",
-    "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
+    "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:client\"",
+    "dev:server": "pnpm --filter @doctrine/server dev",
+    "dev:client": "pnpm --filter @doctrine/client dev",
+    "build": "pnpm --filter @doctrine/shared build && pnpm --filter @doctrine/server build && pnpm --filter @doctrine/client build",
     "typecheck": "tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p client/tsconfig.json",
-    "lint": "eslint server/src client/src shared/src --ext .ts,.tsx"
+    "lint": "oxlint .",
+    "format": "oxfmt ."
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
+    "oxfmt": "^0.40.0",
+    "oxlint": "latest",
     "typescript": "^5.7.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "cbor-extract",
+      "esbuild"
+    ]
   }
 }
