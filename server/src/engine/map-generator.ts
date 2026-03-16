@@ -1,9 +1,4 @@
-import {
-  type GameMap,
-  type Tile,
-  MAP_WIDTH,
-  MAP_HEIGHT,
-} from "@doctrine/shared";
+import { type GameMap, type Tile, MAP_WIDTH, MAP_HEIGHT } from "@doctrine/shared";
 
 /**
  * Seeded PRNG (mulberry32) for deterministic map generation.

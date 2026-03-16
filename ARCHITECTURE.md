@@ -6,12 +6,12 @@ Doctrine is a strategy game where players write instruction systems (doctrine) t
 
 ## Tech Stack
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| Backend actors | [RivetKit](https://rivet.dev) | Stateful actors with real-time WebSocket communication |
-| Frontend | React 19 + Vite | UI for map visualization, doctrine editing, tick debrief |
-| Shared types | TypeScript | Type-safe contract between server and client |
-| Monorepo | npm workspaces | `server/`, `client/`, `shared/` packages |
+| Layer          | Technology                    | Purpose                                                  |
+| -------------- | ----------------------------- | -------------------------------------------------------- |
+| Backend actors | [RivetKit](https://rivet.dev) | Stateful actors with real-time WebSocket communication   |
+| Frontend       | React 19 + Vite               | UI for map visualization, doctrine editing, tick debrief |
+| Shared types   | TypeScript                    | Type-safe contract between server and client             |
+| Monorepo       | npm workspaces                | `server/`, `client/`, `shared/` packages                 |
 
 ## Project Structure
 
@@ -47,6 +47,7 @@ doctrine/
 ### Single Actor Model (Milestone 1)
 
 The `gameWorld` actor owns all game state for a session. This is intentionally simple for the prototype. Future milestones will split into:
+
 - Per-agent actors (when memory tiers are introduced in M2)
 - Map chunk actors (when shared map / PvP is introduced in M3)
 - Matchmaking actor (M9)
@@ -66,6 +67,7 @@ All agent logic is pure functions of `(agent, doctrine, map, tick) -> action`. N
 ## Key Patterns
 
 ### State Flow
+
 ```
 Player edits doctrine JSON
   -> deployDoctrine() RPC
@@ -82,6 +84,7 @@ Player clicks TICK (or auto-tick fires)
 ```
 
 ### Agent Decision Priority
+
 - **Gatherer**: deposit if full -> gather if on resource -> move to nearest resource -> idle
 - **Scout**: patrol pattern based on doctrine config -> linger at position -> move
 - **Defender**: return to guard radius if too far -> hold position

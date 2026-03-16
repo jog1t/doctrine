@@ -80,11 +80,7 @@ export function DoctrineEditor({ doctrine, onDeploy }: DoctrineEditorProps) {
         >
           {deploying ? "DEPLOYING..." : "DEPLOY"}
         </button>
-        <button
-          className="btn btn-secondary"
-          onClick={handleReset}
-          disabled={!dirty}
-        >
+        <button className="btn btn-secondary" onClick={handleReset} disabled={!dirty}>
           RESET
         </button>
       </div>

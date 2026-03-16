@@ -32,9 +32,7 @@ export function App() {
   });
 
   world.useEvent("doctrineDeployed", (data: { doctrine: Doctrine }) => {
-    setGameState((prev) =>
-      prev ? { ...prev, doctrine: data.doctrine } : null
-    );
+    setGameState((prev) => (prev ? { ...prev, doctrine: data.doctrine } : null));
   });
 
   // Initialize game on first connection
@@ -82,7 +80,7 @@ export function App() {
         setError(err instanceof Error ? err.message : "Deploy failed");
       }
     },
-    [world.connection]
+    [world.connection],
   );
 
   const handleReset = useCallback(async () => {
@@ -146,10 +144,7 @@ export function App() {
           />
         </div>
         <div className="app-sidebar">
-          <DoctrineEditor
-            doctrine={gameState.doctrine}
-            onDeploy={handleDeployDoctrine}
-          />
+          <DoctrineEditor doctrine={gameState.doctrine} onDeploy={handleDeployDoctrine} />
           <TickDebriefPanel debrief={latestDebrief} />
         </div>
       </div>

@@ -38,12 +38,7 @@ export function MapView({ map, agents, basePosition }: MapViewProps) {
 
   return (
     <div className="map-container">
-      <svg
-        width={width}
-        height={height}
-        viewBox={`0 0 ${width} ${height}`}
-        className="map-svg"
-      >
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="map-svg">
         {/* Tiles */}
         {map.tiles.map((row, y) =>
           row.map((tile, x) => (
@@ -57,11 +52,9 @@ export function MapView({ map, agents, basePosition }: MapViewProps) {
               stroke="#1a1a18"
               strokeWidth={0.5}
             >
-              {tile.type === "resource" && (
-                <title>Resource: {tile.resources}</title>
-              )}
+              {tile.type === "resource" && <title>Resource: {tile.resources}</title>}
             </rect>
-          ))
+          )),
         )}
 
         {/* Resource indicators */}
@@ -76,8 +69,8 @@ export function MapView({ map, agents, basePosition }: MapViewProps) {
                 fill="#6a9761"
                 opacity={0.7}
               />
-            ) : null
-          )
+            ) : null,
+          ),
         )}
 
         {/* Base */}
@@ -117,12 +110,7 @@ export function MapView({ map, agents, basePosition }: MapViewProps) {
               {renderAgentShape(cx, cy, r, agent.status, color)}
               {/* Carrying indicator for gatherers */}
               {agent.type === "gatherer" && agent.carrying > 0 && (
-                <circle
-                  cx={cx + 5}
-                  cy={cy - 5}
-                  r={2}
-                  fill="#e8d5b0"
-                />
+                <circle cx={cx + 5} cy={cy - 5} r={2} fill="#e8d5b0" />
               )}
               <title>
                 {agent.id} [{agent.status}]
@@ -136,13 +124,7 @@ export function MapView({ map, agents, basePosition }: MapViewProps) {
   );
 }
 
-function renderAgentShape(
-  cx: number,
-  cy: number,
-  r: number,
-  status: string,
-  color: string
-) {
+function renderAgentShape(cx: number, cy: number, r: number, status: string, color: string) {
   switch (status) {
     case "moving":
     case "returning":
