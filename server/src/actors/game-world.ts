@@ -177,16 +177,14 @@ export const gameWorld = actor({
         version: c.state.doctrine.version,
         doctrine: normalizeDoctrine(c.state.doctrine),
       });
-      // Trim history, but never evict a version still referenced by an agent —
-      // agents on evicted versions would silently fall back to current doctrine.
+      // Keep the 5 most recent entries, plus any older entry still referenced by an agent.
+      // A simple while-loop stopping at the first referenced oldest would leave the array
+      // unbounded when an agent stays on an old version indefinitely.
       if (c.state.doctrineHistory.length > 5) {
         const referencedVersions = new Set(c.state.agents.map((a) => a.deployedDoctrineVersion));
-        while (
-          c.state.doctrineHistory.length > 5 &&
-          !referencedVersions.has(c.state.doctrineHistory[0].version)
-        ) {
-          c.state.doctrineHistory.shift();
-        }
+        c.state.doctrineHistory = c.state.doctrineHistory.filter(
+          (h, idx, arr) => idx >= arr.length - 5 || referencedVersions.has(h.version),
+        );
       }
 
       const newVersion = (c.state.doctrine.version || 0) + 1;

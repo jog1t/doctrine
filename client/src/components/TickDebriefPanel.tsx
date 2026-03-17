@@ -138,9 +138,9 @@ function ActionRow({
   return (
     <button
       type="button"
-      className={`action-row action-${action.action}${isStale ? " action-stale" : ""}${isExpanded ? " action-row-expanded" : ""}`}
-      onClick={onClick}
-      aria-expanded={isExpanded}
+      className={`action-row action-${action.action}${isStale ? " action-stale" : ""}${hasMemory && isExpanded ? " action-row-expanded" : ""}`}
+      onClick={hasMemory ? onClick : undefined}
+      aria-expanded={hasMemory ? isExpanded : undefined}
     >
       <span className="action-icon">{icon}</span>
       <span className={`action-type type-${action.agentType}`}>{typeLabel}</span>
