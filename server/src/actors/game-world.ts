@@ -185,7 +185,9 @@ export const gameWorld = actor({
         const referenced = c.state.doctrineHistory.filter((h) => referencedVersions.has(h.version));
         const unreferenced = c.state.doctrineHistory.filter((h) => !referencedVersions.has(h.version));
         const slotsForUnreferenced = Math.max(0, 5 - referenced.length);
-        const trimmed = [...unreferenced.slice(-slotsForUnreferenced), ...referenced];
+        // slice(-0) === slice(0) returns the whole array — guard explicitly
+        const keptUnreferenced = slotsForUnreferenced > 0 ? unreferenced.slice(-slotsForUnreferenced) : [];
+        const trimmed = [...keptUnreferenced, ...referenced];
         trimmed.sort((a, b) => a.version - b.version);
         c.state.doctrineHistory = trimmed.slice(-5);
       }
@@ -205,10 +207,9 @@ export const gameWorld = actor({
         }
       }
 
-      c.broadcast("doctrineDeployed", {
-        doctrine: c.state.doctrine,
-        tick: c.state.tick,
-      });
+      // Broadcast full public state so clients immediately see previousDoctrine,
+      // updated agent deployedDoctrineVersions, and the new doctrine together.
+      c.broadcast("doctrineDeployed", getPublicState(c.state));
       return c.state.doctrine;
     },
 

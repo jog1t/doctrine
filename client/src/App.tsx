@@ -28,8 +28,8 @@ export function App() {
     setLatestDebrief(data.debrief);
   });
 
-  world.useEvent("doctrineDeployed", (data: { doctrine: Doctrine }) => {
-    setGameState((prev) => (prev ? { ...prev, doctrine: data.doctrine } : null));
+  world.useEvent("doctrineDeployed", (state: GameState) => {
+    setGameState(state);
   });
 
   // Initialize game on first connection

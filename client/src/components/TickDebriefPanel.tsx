@@ -140,6 +140,7 @@ function ActionRow({
       type="button"
       className={`action-row action-${action.action}${isStale ? " action-stale" : ""}${hasMemory && isExpanded ? " action-row-expanded" : ""}`}
       onClick={hasMemory ? onClick : undefined}
+      disabled={!hasMemory}
       aria-expanded={hasMemory ? isExpanded : undefined}
     >
       <span className="action-icon">{icon}</span>
