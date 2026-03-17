@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import type { Agent, Doctrine, EpisodeRecord } from "@doctrine/shared";
+import { describe, it, expect } from "vitest";
+import type { EpisodeRecord } from "@doctrine/shared";
 import { executeAgent, applyAction, applyMemoryUpdates, moveThreat, applyThreatDamage } from "../engine/agent-logic.js";
 import { makeMap, makeAgent, makeThreat, makeDoctrine, placeResource, placeObstacle } from "./helpers.js";
 

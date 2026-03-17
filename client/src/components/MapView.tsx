@@ -29,7 +29,8 @@ function memoryLoad(agent: Agent, doctrine: Doctrine): number {
   if (agent.type === "gatherer") maxEpisodes = doctrine.gatherer.memory.maxEpisodes;
   else if (agent.type === "scout") maxEpisodes = doctrine.scout.memory.maxEpisodes;
   else if (agent.type === "defender") maxEpisodes = doctrine.defender.memory.maxEpisodes;
-  if (maxEpisodes === 0) return 0;
+  // Unlimited capacity (maxEpisodes=0): show a fixed load based on episode count (capped at 50)
+  if (maxEpisodes === 0) return agent.episodes.length > 0 ? Math.min(1, agent.episodes.length / 50) : 0;
   return Math.min(1, agent.episodes.length / maxEpisodes);
 }
 

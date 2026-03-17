@@ -192,12 +192,18 @@ function executeGatherer(
     agent.workingMemory.taskStartTick = null;
   }
 
-  const validKnown = knownResources.filter((pos) => {
+  // Linear scan — avoids allocating a sorted copy just to pick the nearest entry
+  let knownTarget: Position | null = null;
+  let knownTargetDist = Infinity;
+  for (const pos of knownResources) {
     const tile = map.tiles[pos.y]?.[pos.x];
-    return tile?.type === "resource" && tile.resources > 0;
-  });
-  const knownTarget =
-    validKnown.sort((a, b) => distance(agent.position, a) - distance(agent.position, b))[0] ?? null;
+    if (tile?.type !== "resource" || tile.resources <= 0) continue;
+    const d = distance(agent.position, pos);
+    if (d < knownTargetDist) {
+      knownTargetDist = d;
+      knownTarget = pos;
+    }
+  }
 
   // Pick a new target (preferScoutIntel first or local first)
   let pickedTarget: Position | null = null;

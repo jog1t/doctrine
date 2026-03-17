@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { Agent, AgentAction, Doctrine, EpisodeEventType, TickDebrief } from "@doctrine/shared";
 
 interface TickDebriefPanelProps {
@@ -41,6 +41,7 @@ const EVENT_COLORS: Record<EpisodeEventType, string> = {
 
 export function TickDebriefPanel({ debrief, agents, doctrine }: TickDebriefPanelProps) {
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
+  const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
 
   if (!debrief) {
     return (
@@ -89,7 +90,7 @@ export function TickDebriefPanel({ debrief, agents, doctrine }: TickDebriefPanel
       )}
       <div className="debrief-actions">
         {debrief.actions.map((action, i) => {
-          const agent = agents.find((a) => a.id === action.agentId);
+          const agent = agentById.get(action.agentId);
           const isExpanded = expandedAgentId === action.agentId;
           return (
             <React.Fragment key={i}>

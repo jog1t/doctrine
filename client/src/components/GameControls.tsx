@@ -1,5 +1,4 @@
 import React from "react";
-import type { GamePhase } from "@doctrine/shared";
 
 interface GameControlsProps {
   onTick: () => void;
@@ -8,7 +7,6 @@ interface GameControlsProps {
   autoTicking: boolean;
   tickSpeed: number;
   onTickSpeedChange: (ms: number) => void;
-  phase: GamePhase;
 }
 
 export function GameControls({
@@ -18,7 +16,6 @@ export function GameControls({
   autoTicking,
   tickSpeed,
   onTickSpeedChange,
-  phase,
 }: GameControlsProps) {
   return (
     <div className="game-controls">

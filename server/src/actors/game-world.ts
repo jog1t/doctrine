@@ -1,6 +1,7 @@
 import { actor } from "rivetkit";
 import type {
   Agent,
+  AgentAction,
   AgentType,
   Doctrine,
   EpisodeRecord,
@@ -208,6 +209,17 @@ export const gameWorld = actor({
       // Migrate persisted doctrine that may predate newer fields
       c.state.doctrine = normalizeDoctrine(c.state.doctrine);
 
+      // Migrate persisted game state that may predate M2 fields
+      c.state.threats ??= [];
+      c.state.towers ??= [createInitialTower(c.state.basePosition)];
+      c.state.doctrineHistory ??= [];
+      c.state.nextThreatId ??= 0;
+      for (const agent of c.state.agents) {
+        agent.workingMemory ??= { currentTask: null, taskTarget: null, taskStartTick: null };
+        agent.episodes ??= [];
+        agent.deployedDoctrineVersion ??= c.state.doctrine.version;
+      }
+
       c.state.tick += 1;
       c.state.phase = "running";
 
@@ -318,13 +330,13 @@ export const gameWorld = actor({
 
 // --- Tick execution ---
 
-function detectRedundancyNotices(actions: import("@doctrine/shared").AgentAction[]): string[] {
+function detectRedundancyNotices(actions: AgentAction[]): string[] {
   const notices: string[] = [];
   const moveActions = actions.filter(
     (a) => a.to && (a.action === "move" || a.action === "move-intel"),
   );
 
-  const byTarget = new Map<string, import("@doctrine/shared").AgentAction[]>();
+  const byTarget = new Map<string, AgentAction[]>();
   for (const action of moveActions) {
     const key = `${action.to!.x},${action.to!.y}`;
     if (!byTarget.has(key)) byTarget.set(key, []);
@@ -452,7 +464,7 @@ function getPublicState(state: {
   towers: Tower[];
 }): GameState {
   // Expose the most-recent historical doctrine as previousDoctrine for the client UI
-  const previousDoctrine = state.doctrineHistory.at(-1)?.doctrine ?? null;
+  const previousDoctrine = (state.doctrineHistory ?? []).at(-1)?.doctrine ?? null;
   return {
     phase: state.phase,
     tick: state.tick,
