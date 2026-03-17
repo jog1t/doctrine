@@ -352,7 +352,7 @@ function executeScout(
   const atTarget =
     agent.workingMemory.taskTarget !== null &&
     distance(agent.position, agent.workingMemory.taskTarget) <= 1;
-  if (!agent.workingMemory.currentTask || agent.workingMemory.currentTask !== "patrol" || atTarget) {
+  if (!agent.workingMemory.currentTask || agent.workingMemory.currentTask !== "patrol" || !agent.workingMemory.taskTarget || atTarget) {
     agent.workingMemory.currentTask = "patrol";
     agent.workingMemory.taskTarget = targetPos;
     agent.workingMemory.taskStartTick = tick;
@@ -623,7 +623,7 @@ function getMemoryConfig(type: string, doctrine: Doctrine): MemoryConfig {
   }
 }
 
-/** Move a threat one step toward the nearest agent. */
+/** Move a threat one step toward the nearest agent (modifies threat in place). */
 export function moveThreat(threat: Threat, agents: Agent[], map: GameMap): void {
   if (agents.length === 0) return;
 

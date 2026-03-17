@@ -203,7 +203,7 @@ export interface GameState {
   map: GameMap;
   agents: Agent[];
   doctrine: Doctrine;
-  /** Previous doctrine version (agents on old version still use this) */
+  /** Most recent prior doctrine — exposed for UI display only. Agent version resolution uses doctrineHistory on the server. */
   previousDoctrine: Doctrine | null;
   basePosition: Position;
   totalResourcesCollected: number;

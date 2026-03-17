@@ -179,8 +179,9 @@ export const gameWorld = actor({
       if (c.state.doctrineHistory.length > 5) c.state.doctrineHistory.shift();
 
       const newVersion = (c.state.doctrine.version || 0) + 1;
-      c.state.doctrine = { ...doctrine, version: newVersion };
-      c.state.basePosition = doctrine.basePosition;
+      // Normalize incoming doctrine so missing fields don't crash server or client.
+      c.state.doctrine = normalizeDoctrine({ ...doctrine, version: newVersion });
+      c.state.basePosition = c.state.doctrine.basePosition;
 
       // Immediately update agents within any tower's broadcast radius
       for (const agent of c.state.agents) {
