@@ -89,11 +89,11 @@ export function TickDebriefPanel({ debrief, agents, doctrine }: TickDebriefPanel
         </div>
       )}
       <div className="debrief-actions">
-        {debrief.actions.map((action, i) => {
+        {debrief.actions.map((action) => {
           const agent = agentById.get(action.agentId);
           const isExpanded = expandedAgentId === action.agentId;
           return (
-            <React.Fragment key={i}>
+            <React.Fragment key={action.agentId}>
               <ActionRow
                 action={action}
                 currentDoctrineVersion={currentVersion}
@@ -155,7 +155,10 @@ function ActionRow({
 }
 
 function AgentMemoryPanel({ agent, maxEpisodes, currentTick }: { agent: Agent; maxEpisodes: number; currentTick: number }) {
-  const memLoad = maxEpisodes > 0 ? Math.min(1, agent.episodes.length / maxEpisodes) : 0;
+  // Unlimited capacity (maxEpisodes=0): scale by a fixed cap of 50 so the bar remains informative
+  const memLoad = maxEpisodes > 0
+    ? Math.min(1, agent.episodes.length / maxEpisodes)
+    : Math.min(1, agent.episodes.length / 50);
   const wm = agent.workingMemory;
   const recentEpisodes = agent.episodes.slice(-8).reverse();
 

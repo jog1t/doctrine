@@ -1,6 +1,7 @@
 import type {
   Agent,
   AgentAction,
+  AgentType,
   Doctrine,
   EpisodeRecord,
   GameMap,
@@ -616,7 +617,7 @@ export function applyMemoryUpdates(
   }
 }
 
-function getMemoryConfig(type: string, doctrine: Doctrine): MemoryConfig {
+function getMemoryConfig(type: AgentType, doctrine: Doctrine): MemoryConfig {
   switch (type) {
     case "gatherer":
       return doctrine.gatherer.memory;
