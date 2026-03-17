@@ -131,6 +131,7 @@ export function App() {
             threats={gameState.threats ?? []}
             towers={gameState.towers ?? []}
             doctrine={gameState.doctrine}
+            previousDoctrine={gameState.previousDoctrine}
           />
           <GameControls
             onTick={handleTick}
@@ -147,6 +148,7 @@ export function App() {
             debrief={latestDebrief}
             agents={gameState.agents}
             doctrine={gameState.doctrine}
+            previousDoctrine={gameState.previousDoctrine}
           />
         </div>
       </div>

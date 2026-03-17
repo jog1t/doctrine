@@ -5,6 +5,7 @@ interface TickDebriefPanelProps {
   debrief: TickDebrief | null;
   agents: Agent[];
   doctrine: Doctrine | null;
+  previousDoctrine: Doctrine | null;
 }
 
 const ACTION_ICONS: Record<string, string> = {
@@ -39,7 +40,7 @@ const EVENT_COLORS: Record<EpisodeEventType, string> = {
   "damage-taken": "var(--color-error)",
 };
 
-export function TickDebriefPanel({ debrief, agents, doctrine }: TickDebriefPanelProps) {
+export function TickDebriefPanel({ debrief, agents, doctrine, previousDoctrine }: TickDebriefPanelProps) {
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
   const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
 
@@ -55,12 +56,17 @@ export function TickDebriefPanel({ debrief, agents, doctrine }: TickDebriefPanel
   const currentVersion = doctrine?.version ?? 1;
   const staleAgents = agents.filter((a) => a.deployedDoctrineVersion < currentVersion);
 
-  function getMaxEpisodes(agent: Agent): number {
-    if (!doctrine) return 10;
-    if (agent.type === "gatherer") return doctrine.gatherer.memory.maxEpisodes;
-    if (agent.type === "scout") return doctrine.scout.memory.maxEpisodes;
-    if (agent.type === "defender") return doctrine.defender.memory.maxEpisodes;
-    return 10;
+  function getMaxEpisodes(agent: Agent): number | null {
+    // Resolve the doctrine version this agent is actually running on the server
+    const agentDoctrine =
+      agent.deployedDoctrineVersion === doctrine?.version ? doctrine :
+      agent.deployedDoctrineVersion === previousDoctrine?.version ? previousDoctrine :
+      null; // version too old — not available on client
+    if (!agentDoctrine) return null;
+    if (agent.type === "gatherer") return agentDoctrine.gatherer.memory.maxEpisodes;
+    if (agent.type === "scout") return agentDoctrine.scout.memory.maxEpisodes;
+    if (agent.type === "defender") return agentDoctrine.defender.memory.maxEpisodes;
+    return null;
   }
 
   return (
@@ -154,11 +160,14 @@ function ActionRow({
   );
 }
 
-function AgentMemoryPanel({ agent, maxEpisodes, currentTick }: { agent: Agent; maxEpisodes: number; currentTick: number }) {
-  // Unlimited capacity (maxEpisodes=0): scale by a fixed cap of 50 so the bar remains informative
-  const memLoad = maxEpisodes > 0
-    ? Math.min(1, agent.episodes.length / maxEpisodes)
-    : Math.min(1, agent.episodes.length / 50);
+function AgentMemoryPanel({ agent, maxEpisodes, currentTick }: { agent: Agent; maxEpisodes: number | null; currentTick: number }) {
+  // null = agent's doctrine version not available client-side (too old); show neutral ring
+  // 0    = unlimited; scale against a fixed cap so the bar remains informative
+  const memLoad = maxEpisodes === null
+    ? 0.3
+    : maxEpisodes > 0
+      ? Math.min(1, agent.episodes.length / maxEpisodes)
+      : Math.min(1, agent.episodes.length / 50);
   const wm = agent.workingMemory;
   const recentEpisodes = agent.episodes.slice(-8).reverse();
 
@@ -173,7 +182,7 @@ function AgentMemoryPanel({ agent, maxEpisodes, currentTick }: { agent: Agent; m
             style={{ width: `${memLoad * 100}%`, opacity: 0.4 + memLoad * 0.6 }}
           />
         </div>
-        <span className="memory-bar-count">{agent.episodes.length}/{maxEpisodes === 0 ? "∞" : maxEpisodes}</span>
+        <span className="memory-bar-count">{agent.episodes.length}/{maxEpisodes === null ? "?" : maxEpisodes === 0 ? "∞" : maxEpisodes}</span>
       </div>
 
       {/* Working memory */}

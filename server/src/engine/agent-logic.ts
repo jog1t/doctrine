@@ -532,6 +532,14 @@ export function applyAction(
         agent.status = "gathering";
         if (tile.resources === 0) {
           tile.type = "empty";
+          // Clear gather working memory — target is gone; prevents a duplicate
+          // resource-depleted episode on the next tick when executeGatherer would
+          // see the committed target is empty and record it again.
+          if (agent.workingMemory.currentTask === "gather") {
+            agent.workingMemory.currentTask = null;
+            agent.workingMemory.taskTarget = null;
+            agent.workingMemory.taskStartTick = null;
+          }
           // Record depletion episode
           pendingEpisodes.push({
             agentId: agent.id,

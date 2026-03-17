@@ -177,7 +177,17 @@ export const gameWorld = actor({
         version: c.state.doctrine.version,
         doctrine: normalizeDoctrine(c.state.doctrine),
       });
-      if (c.state.doctrineHistory.length > 5) c.state.doctrineHistory.shift();
+      // Trim history, but never evict a version still referenced by an agent —
+      // agents on evicted versions would silently fall back to current doctrine.
+      if (c.state.doctrineHistory.length > 5) {
+        const referencedVersions = new Set(c.state.agents.map((a) => a.deployedDoctrineVersion));
+        while (
+          c.state.doctrineHistory.length > 5 &&
+          !referencedVersions.has(c.state.doctrineHistory[0].version)
+        ) {
+          c.state.doctrineHistory.shift();
+        }
+      }
 
       const newVersion = (c.state.doctrine.version || 0) + 1;
       // Normalize incoming doctrine so missing fields don't crash server or client.

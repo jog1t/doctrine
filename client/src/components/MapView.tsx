@@ -8,6 +8,7 @@ interface MapViewProps {
   threats: Threat[];
   towers: Tower[];
   doctrine: Doctrine;
+  previousDoctrine: Doctrine | null;
 }
 
 const TILE_SIZE = 22;
@@ -24,17 +25,27 @@ const AGENT_COLORS: Record<string, string> = {
   defender: "#c45a5a",
 };
 
-function memoryLoad(agent: Agent, doctrine: Doctrine): number {
-  let maxEpisodes = 10;
-  if (agent.type === "gatherer") maxEpisodes = doctrine.gatherer.memory.maxEpisodes;
-  else if (agent.type === "scout") maxEpisodes = doctrine.scout.memory.maxEpisodes;
-  else if (agent.type === "defender") maxEpisodes = doctrine.defender.memory.maxEpisodes;
-  // Unlimited capacity (maxEpisodes=0): show a fixed load based on episode count (capped at 50)
+function memoryLoad(agent: Agent, doctrine: Doctrine, previousDoctrine: Doctrine | null): number {
+  // Resolve the doctrine this agent is actually running on the server
+  const agentDoctrine =
+    agent.deployedDoctrineVersion === doctrine.version ? doctrine :
+    agent.deployedDoctrineVersion === previousDoctrine?.version ? previousDoctrine :
+    null; // version too old — not available on client; show neutral ring
+
+  if (!agentDoctrine) return 0.3;
+
+  let maxEpisodes: number;
+  if (agent.type === "gatherer") maxEpisodes = agentDoctrine.gatherer.memory.maxEpisodes;
+  else if (agent.type === "scout") maxEpisodes = agentDoctrine.scout.memory.maxEpisodes;
+  else if (agent.type === "defender") maxEpisodes = agentDoctrine.defender.memory.maxEpisodes;
+  else maxEpisodes = 10;
+
+  // Unlimited (maxEpisodes=0): scale by a fixed cap so the ring remains informative
   if (maxEpisodes === 0) return agent.episodes.length > 0 ? Math.min(1, agent.episodes.length / 50) : 0;
   return Math.min(1, agent.episodes.length / maxEpisodes);
 }
 
-export function MapView({ map, agents, basePosition, threats, towers, doctrine }: MapViewProps) {
+export function MapView({ map, agents, basePosition, threats, towers, doctrine, previousDoctrine }: MapViewProps) {
   if (!map) return null;
 
   const width = map.width * TILE_SIZE;
@@ -224,7 +235,7 @@ export function MapView({ map, agents, basePosition, threats, towers, doctrine }
           const cy = agent.position.y * TILE_SIZE + TILE_SIZE / 2 + offset.dy;
           const color = AGENT_COLORS[agent.type];
           const r = 5;
-          const load = memoryLoad(agent, doctrine);
+          const load = memoryLoad(agent, doctrine, previousDoctrine);
 
           return (
             <g key={agent.id}>
