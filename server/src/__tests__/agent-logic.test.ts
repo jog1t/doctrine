@@ -425,7 +425,7 @@ describe("applyMemoryUpdates", () => {
       { agentId: "scout-0", record: { tick: 1, eventType: "resource-found" as const, position: { x: 5, y: 5 }, detail: "test" } },
     ];
 
-    applyMemoryUpdates(agents, doctrine, pending, 1, null);
+    applyMemoryUpdates(agents, doctrine, pending, 1, []);
 
     expect(agents[0].episodes.length).toBe(1);
     expect(agents[0].episodes[0].eventType).toBe("resource-found");
@@ -446,7 +446,7 @@ describe("applyMemoryUpdates", () => {
       { agentId: "scout-0", record: { tick: 21, eventType: "resource-found" as const, position: { x: 21, y: 0 }, detail: "ep21" } },
     ];
 
-    applyMemoryUpdates([agent], doctrine, pending, 21, null);
+    applyMemoryUpdates([agent], doctrine, pending, 21, []);
 
     expect(agent.episodes.length).toBe(20);
     // Should keep the 20 most recent
@@ -464,7 +464,7 @@ describe("applyMemoryUpdates", () => {
       gatherer: { ...makeDoctrine().gatherer, memory: { maxEpisodes: 10, decayAfterTicks: 10 } },
     });
 
-    applyMemoryUpdates([agent], doctrine, [], 30, null); // tick 30: episode at tick 1 is 29 ticks old > 10
+    applyMemoryUpdates([agent], doctrine, [], 30, []); // tick 30: episode at tick 1 is 29 ticks old > 10
 
     expect(agent.episodes.length).toBe(1);
     expect(agent.episodes[0].detail).toBe("recent");
@@ -480,7 +480,7 @@ describe("applyMemoryUpdates", () => {
       gatherer: { ...makeDoctrine().gatherer, memory: { maxEpisodes: 100, decayAfterTicks: 0 } },
     });
 
-    applyMemoryUpdates([agent], doctrine, [], 1000, null);
+    applyMemoryUpdates([agent], doctrine, [], 1000, []);
 
     expect(agent.episodes.length).toBe(1);
   });
@@ -492,7 +492,7 @@ describe("applyMemoryUpdates", () => {
       { agentId: "nonexistent", record: { tick: 1, eventType: "resource-found" as const, position: { x: 0, y: 0 }, detail: "" } },
     ];
 
-    applyMemoryUpdates(agents, doctrine, pending, 1, null);
+    applyMemoryUpdates(agents, doctrine, pending, 1, []);
 
     expect(agents[0].episodes.length).toBe(0);
   });
@@ -595,5 +595,107 @@ describe("agent doctrine version in actions", () => {
     const action = executeAgent(agent, doctrine, map, 1, [], [], [], pending);
 
     expect(action.doctrineVersion).toBe(2);
+  });
+});
+
+// ============================================================
+// Scout working memory: committed target drives movement
+// ============================================================
+
+describe("scout committed working memory target", () => {
+  it("moves toward the committed working-memory target, not a freshly recomputed one", () => {
+    const map = makeMap();
+    // Scout starts somewhere in the middle
+    const agent = makeAgent("scout-0", "scout", { x: 16, y: 12 }, {
+      workingMemory: {
+        currentTask: "patrol",
+        taskTarget: { x: 5, y: 5 }, // committed to (5,5)
+        taskStartTick: 1,
+      },
+    });
+    const doctrine = makeDoctrine({ scout: { ...makeDoctrine().scout, patrolPattern: "grid", lingerTicks: 0 } });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeAgent(agent, doctrine, map, 2, [], [], [], pending);
+
+    // Should still be heading toward committed (5,5), not a new tick-based target
+    expect(action.action).toBe("move");
+    expect(action.reason).toContain("(5, 5)");
+  });
+
+  it("commits to a new target once the current committed target is reached", () => {
+    const map = makeMap();
+    // Scout already AT the committed target
+    const agent = makeAgent("scout-0", "scout", { x: 5, y: 5 }, {
+      workingMemory: {
+        currentTask: "patrol",
+        taskTarget: { x: 5, y: 5 }, // already at target
+        taskStartTick: 1,
+      },
+    });
+    const doctrine = makeDoctrine({ scout: { ...makeDoctrine().scout, patrolPattern: "grid", lingerTicks: 0 } });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    executeAgent(agent, doctrine, map, 100, [], [], [], pending); // tick 100 — atTarget=true, so commits to new targetPos
+
+    // Working memory should have been updated to a new (different) target
+    expect(agent.workingMemory.taskTarget).not.toMatchObject({ x: 5, y: 5 });
+  });
+});
+
+// ============================================================
+// Doctrine history: resolves correct config for multi-version-behind agent
+// ============================================================
+
+describe("applyMemoryUpdates with doctrine history", () => {
+  it("uses the matching historical doctrine's memory config for an agent 2 versions behind", () => {
+    // Current doctrine (v3) has maxEpisodes=5; the agent is on v1 which has maxEpisodes=50
+    const agent = makeAgent("scout-0", "scout", { x: 16, y: 12 }, {
+      deployedDoctrineVersion: 1,
+      episodes: Array.from({ length: 10 }, (_, i) => ({
+        tick: i + 1,
+        eventType: "resource-found" as const,
+        position: { x: i, y: 0 },
+        detail: `ep${i}`,
+      })),
+    });
+    const currentDoctrine = makeDoctrine({
+      version: 3,
+      scout: { ...makeDoctrine().scout, memory: { maxEpisodes: 5, decayAfterTicks: 0 } },
+    });
+    const v1Doctrine = makeDoctrine({
+      version: 1,
+      scout: { ...makeDoctrine().scout, memory: { maxEpisodes: 50, decayAfterTicks: 0 } },
+    });
+    const history = [
+      { version: 1, doctrine: v1Doctrine },
+      { version: 2, doctrine: makeDoctrine({ version: 2 }) },
+    ];
+
+    applyMemoryUpdates([agent], currentDoctrine, [], 10, history);
+
+    // Agent is on v1 (maxEpisodes=50), so all 10 episodes should be kept
+    expect(agent.episodes.length).toBe(10);
+  });
+
+  it("falls back to current doctrine when agent version not found in history", () => {
+    const agent = makeAgent("scout-0", "scout", { x: 16, y: 12 }, {
+      deployedDoctrineVersion: 99, // unknown version
+      episodes: Array.from({ length: 10 }, (_, i) => ({
+        tick: i + 1,
+        eventType: "resource-found" as const,
+        position: { x: i, y: 0 },
+        detail: `ep${i}`,
+      })),
+    });
+    const currentDoctrine = makeDoctrine({
+      version: 3,
+      scout: { ...makeDoctrine().scout, memory: { maxEpisodes: 5, decayAfterTicks: 0 } },
+    });
+
+    applyMemoryUpdates([agent], currentDoctrine, [], 10, []);
+
+    // Falls back to current doctrine (maxEpisodes=5), trims to 5
+    expect(agent.episodes.length).toBe(5);
   });
 });

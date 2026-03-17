@@ -347,7 +347,8 @@ function executeScout(
     };
   }
 
-  // Working memory: commit to a new patrol target only when starting fresh or the previous target was reached
+  // Working memory: commit to a new patrol target only when starting fresh or the previous target was reached.
+  // targetPos (computed from tick + pattern) is only used to pick the next waypoint to commit to.
   const atTarget =
     agent.workingMemory.taskTarget !== null &&
     distance(agent.position, agent.workingMemory.taskTarget) <= 1;
@@ -357,8 +358,11 @@ function executeScout(
     agent.workingMemory.taskStartTick = tick;
   }
 
+  // Use the committed target for all movement — not the freshly recomputed targetPos.
+  const committedTarget = agent.workingMemory.taskTarget!;
+
   // Linger logic
-  if (distance(agent.position, targetPos) <= 1 && tick % (cfg.lingerTicks + 1) !== 0) {
+  if (distance(agent.position, committedTarget) <= 1 && tick % (cfg.lingerTicks + 1) !== 0) {
     return {
       agentId: agent.id,
       agentType: "scout",
@@ -370,12 +374,12 @@ function executeScout(
     };
   }
 
-  const next = stepToward(agent.position, targetPos, map);
+  const next = stepToward(agent.position, committedTarget, map);
   return {
     agentId: agent.id,
     agentType: "scout",
     action: "move",
-    reason: `Patrolling (${cfg.patrolPattern}) toward (${targetPos.x}, ${targetPos.y})`,
+    reason: `Patrolling (${cfg.patrolPattern}) toward (${committedTarget.x}, ${committedTarget.y})`,
     from: agent.position,
     to: next,
     doctrineVersion: doctrine.version,
@@ -573,7 +577,7 @@ export function applyMemoryUpdates(
   doctrine: Doctrine,
   pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
   tick: number,
-  previousDoctrine: Doctrine | null,
+  doctrineHistory: Array<{ version: number; doctrine: Doctrine }>,
 ): void {
   // Group pending episodes by agent
   const byAgent = new Map<string, EpisodeRecord[]>();
@@ -584,10 +588,11 @@ export function applyMemoryUpdates(
 
   for (const agent of agents) {
     const newEpisodes = byAgent.get(agent.id) ?? [];
+    // Exact-version lookup: an agent 2+ versions behind finds the right config in history
     const agentDoctrine =
-      agent.deployedDoctrineVersion >= doctrine.version || !previousDoctrine
+      agent.deployedDoctrineVersion === doctrine.version
         ? doctrine
-        : previousDoctrine;
+        : (doctrineHistory.find((h) => h.version === agent.deployedDoctrineVersion)?.doctrine ?? doctrine);
     const memCfg = getMemoryConfig(agent.type, agentDoctrine);
 
     // Append new episodes

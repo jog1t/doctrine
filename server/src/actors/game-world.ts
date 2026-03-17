@@ -129,7 +129,8 @@ export const gameWorld = actor({
     map: null as GameMap | null,
     agents: [] as Agent[],
     doctrine: DEFAULT_DOCTRINE as Doctrine,
-    previousDoctrine: null as Doctrine | null,
+    /** Normalized history of past doctrine versions, keyed by version. Capped at 5 entries. */
+    doctrineHistory: [] as Array<{ version: number; doctrine: Doctrine }>,
     basePosition: DEFAULT_DOCTRINE.basePosition,
     totalResourcesCollected: 0,
     debriefs: [] as TickDebrief[],
@@ -162,15 +163,20 @@ export const gameWorld = actor({
       c.state.threats = [];
       c.state.towers = [createInitialTower(base)];
       c.state.nextThreatId = 0;
-      c.state.previousDoctrine = null;
+      c.state.doctrineHistory = [];
 
       c.broadcast("gameInitialized", getPublicState(c.state));
       return getPublicState(c.state);
     },
 
     deployDoctrine: (c, doctrine: Doctrine) => {
-      // Save previous doctrine for agents who haven't received the update yet
-      c.state.previousDoctrine = c.state.doctrine;
+      // Save normalized current doctrine to history before replacing it.
+      // Normalization ensures persisted state missing new fields won't crash applyMemoryUpdates.
+      c.state.doctrineHistory.push({
+        version: c.state.doctrine.version,
+        doctrine: normalizeDoctrine(c.state.doctrine),
+      });
+      if (c.state.doctrineHistory.length > 5) c.state.doctrineHistory.shift();
 
       const newVersion = (c.state.doctrine.version || 0) + 1;
       c.state.doctrine = { ...doctrine, version: newVersion };
@@ -217,7 +223,7 @@ export const gameWorld = actor({
         c.state.tick,
         c.state.agents,
         c.state.doctrine,
-        c.state.previousDoctrine,
+        c.state.doctrineHistory,
         c.state.map,
         c.state.knownResources,
         c.state.threats,
@@ -338,7 +344,7 @@ function runTick(
   tick: number,
   agents: Agent[],
   doctrine: Doctrine,
-  previousDoctrine: Doctrine | null,
+  doctrineHistory: Array<{ version: number; doctrine: Doctrine }>,
   map: GameMap,
   knownResources: Position[],
   threats: Threat[],
@@ -350,12 +356,9 @@ function runTick(
   const newKnownResources: Position[] = [];
   const pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }> = [];
 
-  // Execute agent decisions (each uses their own doctrine version)
+  // Execute agent decisions (each uses the doctrine version they were last updated to)
   const actions = agents.map((agent) => {
-    const agentDoctrine =
-      agent.deployedDoctrineVersion >= doctrine.version
-        ? doctrine
-        : (previousDoctrine ?? doctrine);
+    const agentDoctrine = resolveDoctrineForAgent(agent, doctrine, doctrineHistory);
     return executeAgent(agent, agentDoctrine, map, tick, knownResources, newKnownResources, threats, pendingEpisodes);
   });
 
@@ -374,7 +377,7 @@ function runTick(
   const killedAgentIds = applyThreatDamage(threats, agents, tick, pendingEpisodes);
 
   // Apply episodic memory updates and decay
-  applyMemoryUpdates(agents, doctrine, pendingEpisodes, tick, previousDoctrine);
+  applyMemoryUpdates(agents, doctrine, pendingEpisodes, tick, doctrineHistory);
 
   const notices = detectRedundancyNotices(actions);
 
@@ -393,6 +396,16 @@ function runTick(
 }
 
 // --- Helpers ---
+
+/** Returns the doctrine version the agent was last updated to, falling back to current. */
+function resolveDoctrineForAgent(
+  agent: Agent,
+  current: Doctrine,
+  history: Array<{ version: number; doctrine: Doctrine }>,
+): Doctrine {
+  if (agent.deployedDoctrineVersion === current.version) return current;
+  return history.find((h) => h.version === agent.deployedDoctrineVersion)?.doctrine ?? current;
+}
 
 function euclideanDist(a: Position, b: Position): number {
   const dx = a.x - b.x;
@@ -429,7 +442,7 @@ function getPublicState(state: {
   map: GameMap | null;
   agents: Agent[];
   doctrine: Doctrine;
-  previousDoctrine: Doctrine | null;
+  doctrineHistory: Array<{ version: number; doctrine: Doctrine }>;
   basePosition: { x: number; y: number };
   totalResourcesCollected: number;
   debriefs: TickDebrief[];
@@ -437,13 +450,15 @@ function getPublicState(state: {
   threats: Threat[];
   towers: Tower[];
 }): GameState {
+  // Expose the most-recent historical doctrine as previousDoctrine for the client UI
+  const previousDoctrine = state.doctrineHistory.at(-1)?.doctrine ?? null;
   return {
     phase: state.phase,
     tick: state.tick,
     map: state.map!,
     agents: state.agents,
     doctrine: normalizeDoctrine(state.doctrine),
-    previousDoctrine: state.previousDoctrine ? normalizeDoctrine(state.previousDoctrine) : null,
+    previousDoctrine,
     basePosition: state.basePosition,
     totalResourcesCollected: state.totalResourcesCollected,
     debriefs: state.debriefs,
