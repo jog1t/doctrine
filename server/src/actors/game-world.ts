@@ -177,14 +177,15 @@ export const gameWorld = actor({
         version: c.state.doctrine.version,
         doctrine: normalizeDoctrine(c.state.doctrine),
       });
-      // Keep the 5 most recent entries, plus any older entry still referenced by an agent.
-      // A simple while-loop stopping at the first referenced oldest would leave the array
-      // unbounded when an agent stays on an old version indefinitely.
+      // Hard-cap at 5 entries. First drop unreferenced entries oldest-first; if referenced
+      // entries alone still exceed the cap, drop oldest referenced ones too (agents fall back
+      // to the current doctrine when their version is no longer in history).
       if (c.state.doctrineHistory.length > 5) {
         const referencedVersions = new Set(c.state.agents.map((a) => a.deployedDoctrineVersion));
-        c.state.doctrineHistory = c.state.doctrineHistory.filter(
+        const withoutOldUnref = c.state.doctrineHistory.filter(
           (h, idx, arr) => idx >= arr.length - 5 || referencedVersions.has(h.version),
         );
+        c.state.doctrineHistory = withoutOldUnref.length > 5 ? withoutOldUnref.slice(-5) : withoutOldUnref;
       }
 
       const newVersion = (c.state.doctrine.version || 0) + 1;
