@@ -177,15 +177,17 @@ export const gameWorld = actor({
         version: c.state.doctrine.version,
         doctrine: normalizeDoctrine(c.state.doctrine),
       });
-      // Hard-cap at 5 entries. First drop unreferenced entries oldest-first; if referenced
-      // entries alone still exceed the cap, drop oldest referenced ones too (agents fall back
-      // to the current doctrine when their version is no longer in history).
+      // Hard-cap at 5 entries. Prioritize referenced versions (agents still running them);
+      // fill remaining slots with newest unreferenced entries. If referenced entries alone
+      // exceed 5, drop oldest referenced ones too (agents fall back to current doctrine).
       if (c.state.doctrineHistory.length > 5) {
         const referencedVersions = new Set(c.state.agents.map((a) => a.deployedDoctrineVersion));
-        const withoutOldUnref = c.state.doctrineHistory.filter(
-          (h, idx, arr) => idx >= arr.length - 5 || referencedVersions.has(h.version),
-        );
-        c.state.doctrineHistory = withoutOldUnref.length > 5 ? withoutOldUnref.slice(-5) : withoutOldUnref;
+        const referenced = c.state.doctrineHistory.filter((h) => referencedVersions.has(h.version));
+        const unreferenced = c.state.doctrineHistory.filter((h) => !referencedVersions.has(h.version));
+        const slotsForUnreferenced = Math.max(0, 5 - referenced.length);
+        const trimmed = [...unreferenced.slice(-slotsForUnreferenced), ...referenced];
+        trimmed.sort((a, b) => a.version - b.version);
+        c.state.doctrineHistory = trimmed.slice(-5);
       }
 
       const newVersion = (c.state.doctrine.version || 0) + 1;

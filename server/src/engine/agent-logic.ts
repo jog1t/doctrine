@@ -179,13 +179,16 @@ function executeGatherer(
       };
     }
     // Target depleted — record episode, clear working memory
+    const atTarget = distance(agent.position, target) <= 1;
     pendingEpisodes.push({
       agentId: agent.id,
       record: {
         tick,
         eventType: "resource-depleted",
         position: target,
-        detail: `Target at (${target.x}, ${target.y}) was depleted on arrival`,
+        detail: atTarget
+          ? `Target at (${target.x}, ${target.y}) was depleted on arrival`
+          : `Target at (${target.x}, ${target.y}) was depleted while en route`,
       },
     });
     agent.workingMemory.currentTask = null;
@@ -432,10 +435,14 @@ function executeDefender(
     }
 
     if (cfg.chaseThreats && threatDist <= cfg.maxChaseDistance) {
-      // Commit to chasing via working memory
+      // Commit to chasing via working memory; reset start tick if switching to a new target
+      const sameTarget =
+        agent.workingMemory.currentTask === "chase" &&
+        agent.workingMemory.taskTarget?.x === visibleThreat.position.x &&
+        agent.workingMemory.taskTarget?.y === visibleThreat.position.y;
       agent.workingMemory.currentTask = "chase";
       agent.workingMemory.taskTarget = visibleThreat.position;
-      agent.workingMemory.taskStartTick ??= tick;
+      if (!sameTarget) agent.workingMemory.taskStartTick = tick;
 
       const next = stepToward(agent.position, visibleThreat.position, map);
       return {
