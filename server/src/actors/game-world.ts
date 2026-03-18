@@ -195,7 +195,13 @@ export const gameWorld = actor({
       const newVersion = (c.state.doctrine.version || 0) + 1;
       // Normalize incoming doctrine so missing fields don't crash server or client.
       c.state.doctrine = normalizeDoctrine({ ...doctrine, version: newVersion });
-      c.state.basePosition = c.state.doctrine.basePosition;
+      const newBase = c.state.doctrine.basePosition;
+      // Keep the base tower in sync with basePosition — tower-0 is defined as the base tower.
+      if (newBase.x !== c.state.basePosition.x || newBase.y !== c.state.basePosition.y) {
+        const baseTower = c.state.towers.find((t) => t.id === "tower-0");
+        if (baseTower) baseTower.position = { ...newBase };
+      }
+      c.state.basePosition = newBase;
 
       // Immediately update agents within any tower's broadcast radius
       for (const agent of c.state.agents) {
