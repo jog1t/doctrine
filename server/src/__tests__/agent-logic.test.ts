@@ -798,6 +798,129 @@ describe("spawnThreat", () => {
 });
 
 // ============================================================
+// applyThreatDamage: multiple threats on same tile — agent killed only once
+// ============================================================
+
+describe("applyThreatDamage deduplication", () => {
+  it("returns agent id only once when two threats are on the same tile", () => {
+    const agent = makeAgent("gatherer-0", "gatherer", { x: 10, y: 10 }, { hp: 1, maxHp: 5 });
+    const t1 = makeThreat("threat-0", { x: 10, y: 10 });
+    const t2 = makeThreat("threat-1", { x: 10, y: 10 });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const killed = applyThreatDamage([t1, t2], [agent], 1, pending);
+
+    expect(killed.filter((id) => id === "gatherer-0").length).toBe(1);
+  });
+
+  it("skips further damage to an already-killed agent in the same tick", () => {
+    // Agent has 1 hp — two threats on same tile; should only take 1 hit total
+    const agent = makeAgent("gatherer-0", "gatherer", { x: 10, y: 10 }, { hp: 1, maxHp: 5 });
+    const t1 = makeThreat("threat-0", { x: 10, y: 10 });
+    const t2 = makeThreat("threat-1", { x: 10, y: 10 });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    applyThreatDamage([t1, t2], [agent], 1, pending);
+
+    // Should have exactly one damage-taken episode, not two
+    const damageEvents = pending.filter((e) => e.record.eventType === "damage-taken");
+    expect(damageEvents.length).toBe(1);
+  });
+});
+
+// ============================================================
+// Scout resource-found deduplication: no episode for already-known resources
+// ============================================================
+
+describe("scout resource-found deduplication", () => {
+  it("does not record resource-found episode for a resource already in knownResources", () => {
+    const map = makeMap();
+    placeResource(map, 16, 12, 5); // on agent position, visible
+    const knownResources = [{ x: 16, y: 12 }]; // already known
+    const agent = makeAgent("scout-0", "scout", { x: 16, y: 12 });
+    const doctrine = makeDoctrine({ scout: { ...makeDoctrine().scout, reportResourceFinds: true } });
+    const newKnown: Array<{ x: number; y: number }> = [];
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    executeAgent(agent, doctrine, map, 1, knownResources, newKnown, [], pending);
+
+    expect(newKnown.length).toBe(0);
+    expect(pending.some((e) => e.record.eventType === "resource-found")).toBe(false);
+  });
+
+  it("does not record resource-found episode if another scout already found it this tick", () => {
+    const map = makeMap();
+    placeResource(map, 16, 12, 5);
+    const newKnown = [{ x: 16, y: 12 }]; // already added by another scout this tick
+    const agent = makeAgent("scout-1", "scout", { x: 16, y: 12 });
+    const doctrine = makeDoctrine({ scout: { ...makeDoctrine().scout, reportResourceFinds: true } });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    executeAgent(agent, doctrine, map, 1, [], newKnown, [], pending);
+
+    const foundEpisodes = pending.filter((e) => e.record.eventType === "resource-found");
+    expect(foundEpisodes.length).toBe(0);
+  });
+});
+
+// ============================================================
+// normalizeDoctrine deep-merges nested memory objects
+// ============================================================
+
+describe("applyMemoryUpdates normalizeDoctrine deep merge", () => {
+  it("fills in missing decayAfterTicks when only maxEpisodes is provided in memory", () => {
+    // Simulate a doctrine with partial memory config (only maxEpisodes specified)
+    const partialMemoryDoctrine = makeDoctrine({
+      gatherer: {
+        ...makeDoctrine().gatherer,
+        memory: { maxEpisodes: 5, decayAfterTicks: 0 },
+      },
+    });
+    const agent = makeAgent("gatherer-0", "gatherer", { x: 16, y: 12 }, {
+      episodes: Array.from({ length: 10 }, (_, i) => ({
+        tick: i + 1,
+        eventType: "resource-found" as const,
+        position: { x: i, y: 0 },
+        detail: `ep${i}`,
+      })),
+    });
+
+    // Should trim to maxEpisodes=5, decayAfterTicks=0 means keep forever
+    applyMemoryUpdates([agent], partialMemoryDoctrine, [], 10, []);
+    expect(agent.episodes.length).toBe(5);
+  });
+});
+
+// ============================================================
+// applyAction: gather depletion clears working memory to prevent duplicate episode
+// ============================================================
+
+describe("gatherer working memory cleared on depletion in applyAction", () => {
+  it("clears gather working memory when gatherer exhausts a tile, preventing duplicate depletion episode", () => {
+    const map = makeMap();
+    placeResource(map, 10, 10, 1); // last resource — will be depleted
+    const agent = makeAgent("gatherer-0", "gatherer", { x: 10, y: 10 }, {
+      workingMemory: { currentTask: "gather", taskTarget: { x: 10, y: 10 }, taskStartTick: 1 },
+    });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    applyAction(
+      { agentId: "gatherer-0", agentType: "gatherer", action: "gather", reason: "", from: { x: 10, y: 10 }, to: null, doctrineVersion: 1 },
+      [agent],
+      map,
+      1,
+      pending,
+    );
+
+    // Working memory should be cleared so executeGatherer doesn't emit another resource-depleted
+    expect(agent.workingMemory.currentTask).toBeNull();
+    expect(agent.workingMemory.taskTarget).toBeNull();
+    // Only one depletion episode
+    expect(pending.filter((e) => e.record.eventType === "resource-depleted").length).toBe(1);
+  });
+});
+
+// ============================================================
 // PR: basePosition is canonical world-state — stale agents use current base
 // ============================================================
 
