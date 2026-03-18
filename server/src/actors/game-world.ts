@@ -11,7 +11,6 @@ import type {
   Position,
   TickDebrief,
   Threat,
-  Tile,
   Tower,
 } from "@doctrine/shared";
 import { DEFAULT_DOCTRINE } from "@doctrine/shared";
@@ -30,7 +29,7 @@ import {
 
 /** Snap a desired spawn position to the nearest passable tile using a spiral scan. */
 function nearestPassable(desired: Position, map: GameMap): Position {
-  const tile: Tile = map.tiles[desired.y]?.[desired.x];
+  const tile = map.tiles[desired.y]?.[desired.x];
   if (tile && tile.type !== "obstacle") return desired;
 
   for (let r = 1; r < Math.max(map.width, map.height); r++) {

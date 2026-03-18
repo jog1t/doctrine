@@ -888,12 +888,11 @@ describe("scout resource-found deduplication", () => {
 });
 
 // ============================================================
-// normalizeDoctrine deep-merges nested memory objects
+// applyMemoryUpdates respects provided memory config
 // ============================================================
 
-describe("applyMemoryUpdates normalizeDoctrine deep merge", () => {
-  it("fills in missing decayAfterTicks when only maxEpisodes is provided in memory", () => {
-    // Simulate a doctrine with partial memory config (only maxEpisodes specified)
+describe("applyMemoryUpdates memory config", () => {
+  it("trims to the configured maxEpisodes when decay is disabled", () => {
     const partialMemoryDoctrine = makeDoctrine({
       gatherer: {
         ...makeDoctrine().gatherer,
