@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from "react";
 import clsx from "clsx";
-import type { Agent, AgentAction, Doctrine, EpisodeEventType, TickDebrief } from "@doctrine/shared";
+import type { Agent, AgentAction, Doctrine, EpisodeEventType, ThreatSighting, TickDebrief } from "@doctrine/shared";
 
 interface TickDebriefPanelProps {
   debrief: TickDebrief | null;
   agents: Agent[];
   doctrine: Doctrine | null;
   previousDoctrine: Doctrine | null;
+  threatSightings: ThreatSighting[];
 }
 
 const ACTION_ICONS: Record<string, string> = {
@@ -41,7 +42,7 @@ const EVENT_COLORS: Record<EpisodeEventType, string> = {
   "damage-taken": "var(--color-error)",
 };
 
-export function TickDebriefPanel({ debrief, agents, doctrine, previousDoctrine }: TickDebriefPanelProps) {
+export function TickDebriefPanel({ debrief, agents, doctrine, previousDoctrine, threatSightings }: TickDebriefPanelProps) {
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
   const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
 
@@ -84,6 +85,20 @@ export function TickDebriefPanel({ debrief, agents, doctrine, previousDoctrine }
       {staleAgents.length > 0 && (
         <div className="debrief-version-skew">
           ! VERSION SKEW: {staleAgents.map((a) => `${a.id} (v${a.deployedDoctrineVersion})`).join(", ")} running old doctrine
+        </div>
+      )}
+      {threatSightings.length > 0 && (
+        <div className="debrief-threat-intel">
+          <div className="debrief-threat-intel-label">THREAT INTEL</div>
+          <div className="debrief-threat-intel-list">
+            {threatSightings.map((sighting) => (
+              <div key={sighting.threatId} className="debrief-threat-intel-entry">
+                <span className="debrief-threat-intel-id">{sighting.threatId}</span>
+                <span className="debrief-threat-intel-pos">({sighting.position.x}, {sighting.position.y})</span>
+                <span className="debrief-threat-intel-tick">seen t{sighting.lastSeenTick}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {debrief.notices && debrief.notices.length > 0 && (

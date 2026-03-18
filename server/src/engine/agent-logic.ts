@@ -8,6 +8,7 @@ import type {
   MemoryConfig,
   Position,
   Threat,
+  ThreatSighting,
 } from "@doctrine/shared";
 
 // --- Utility ---
@@ -127,6 +128,65 @@ function findNearestThreat(from: Position, threats: Threat[], maxRange: number):
     }
   }
   return nearest;
+}
+
+export const THREAT_SIGHTING_EXPIRY_TICKS = 20;
+
+function isThreatSightingFresh(sighting: ThreatSighting, tick: number): boolean {
+  return tick - sighting.lastSeenTick <= THREAT_SIGHTING_EXPIRY_TICKS;
+}
+
+function isReachable(from: Position, to: Position, map: GameMap): boolean {
+  if (from.x === to.x && from.y === to.y) return true;
+  const next = stepToward(from, to, map);
+  return next.x !== from.x || next.y !== from.y;
+}
+
+function findInvestigableSighting(
+  from: Position,
+  map: GameMap,
+  threatSightings: ThreatSighting[],
+  tick: number,
+  maxInvestigateDistance: number,
+  preferredThreatId?: string,
+): ThreatSighting | null {
+  const eligibleSightings = threatSightings.filter((sighting) => {
+    if (!isThreatSightingFresh(sighting, tick)) return false;
+    if (distance(from, sighting.position) > maxInvestigateDistance) return false;
+    return isReachable(from, sighting.position, map);
+  });
+
+  if (preferredThreatId) {
+    const preferred = eligibleSightings.find((sighting) => sighting.threatId === preferredThreatId);
+    if (preferred) return preferred;
+  }
+
+  let best: ThreatSighting | null = null;
+  let bestDistance = Infinity;
+  for (const sighting of eligibleSightings) {
+    const sightingDistance = distance(from, sighting.position);
+    if (sightingDistance < bestDistance) {
+      bestDistance = sightingDistance;
+      best = sighting;
+    }
+  }
+
+  return best;
+}
+
+function upsertThreatSightingBuffer(
+  sightings: ThreatSighting[],
+  sighting: ThreatSighting,
+): void {
+  const existingIndex = sightings.findIndex((entry) => entry.threatId === sighting.threatId);
+  if (existingIndex === -1) {
+    sightings.push(sighting);
+    return;
+  }
+
+  if (sighting.lastSeenTick >= sightings[existingIndex].lastSeenTick) {
+    sightings[existingIndex] = sighting;
+  }
 }
 
 // --- Agent Logic (Tier 1: Working Memory + Tier 2: Episodic Memory) ---
@@ -297,10 +357,39 @@ function executeScout(
   tick: number,
   knownResources: Position[],
   newKnownResources: Position[],
+  threatSightings: ThreatSighting[],
+  newThreatSightings: ThreatSighting[],
+  threats: Threat[],
   pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
 ): AgentAction {
   const cfg = doctrine.scout;
   const base = doctrine.basePosition;
+
+  const visibleThreats = threats.filter(
+    (threat) => distance(agent.position, threat.position) <= agent.visionRadius,
+  );
+
+  for (const threat of visibleThreats) {
+    const threatDistance = distance(agent.position, threat.position);
+    if (threatDistance > cfg.threatReportRadius) continue;
+
+    const existingSighting = [...newThreatSightings, ...threatSightings].find(
+      (entry) => entry.threatId === threat.id,
+    );
+    const reportChanged =
+      !existingSighting ||
+      existingSighting.position.x !== threat.position.x ||
+      existingSighting.position.y !== threat.position.y ||
+      tick - existingSighting.lastSeenTick >= 5;
+
+    if (!reportChanged) continue;
+
+    upsertThreatSightingBuffer(newThreatSightings, {
+      threatId: threat.id,
+      position: { ...threat.position },
+      lastSeenTick: tick,
+    });
+  }
 
   // Report resources visible at current position
   if (cfg.reportResourceFinds) {
@@ -439,17 +528,54 @@ function executeDefender(
   map: GameMap,
   threats: Threat[],
   tick: number,
+  threatSightings: ThreatSighting[],
   pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
 ): AgentAction {
   const cfg = doctrine.defender;
   const base = doctrine.basePosition;
   const distFromBase = distance(agent.position, base);
 
-  const clearChaseMemory = () => {
-    if (!agent.workingMemory.currentTask?.startsWith("chase:")) return;
+  const clearPursuitMemory = () => {
+    if (
+      !agent.workingMemory.currentTask?.startsWith("chase:") &&
+      !agent.workingMemory.currentTask?.startsWith("investigate:")
+    ) {
+      return;
+    }
     agent.workingMemory.currentTask = null;
     agent.workingMemory.taskTarget = null;
     agent.workingMemory.taskStartTick = null;
+  };
+
+  const currentTask = agent.workingMemory.currentTask;
+  const pursuitThreatId =
+    currentTask?.startsWith("chase:") || currentTask?.startsWith("investigate:")
+      ? currentTask.split(":")[1]
+      : undefined;
+
+  const returnToGuardPost = (): AgentAction => {
+    if (distFromBase > cfg.guardRadius) {
+      const next = stepToward(agent.position, base, map);
+      return {
+        agentId: agent.id,
+        agentType: "defender",
+        action: "move",
+        reason: `Too far from base (${distFromBase} > ${cfg.guardRadius}), returning`,
+        from: agent.position,
+        to: next,
+        doctrineVersion: doctrine.version,
+      };
+    }
+
+    return {
+      agentId: agent.id,
+      agentType: "defender",
+      action: "guard",
+      reason: `Holding position within guard radius (${distFromBase}/${cfg.guardRadius})`,
+      from: agent.position,
+      to: null,
+      doctrineVersion: doctrine.version,
+    };
   };
 
   // Check for nearby threats within vision radius
@@ -501,34 +627,88 @@ function executeDefender(
         doctrineVersion: doctrine.version,
       };
     }
+
+    clearPursuitMemory();
+    return returnToGuardPost();
   }
 
-  // If we are no longer actively chasing, stale chase memory should not survive into guard/return behavior.
-  clearChaseMemory();
+  if (cfg.chaseThreats) {
+    if (agent.workingMemory.taskTarget && pursuitThreatId) {
+      const hasFreshMatchingSighting = threatSightings.some(
+        (sighting) =>
+          sighting.threatId === pursuitThreatId &&
+          isThreatSightingFresh(sighting, tick) &&
+          distance(agent.position, sighting.position) <= cfg.maxInvestigateDistance &&
+          isReachable(agent.position, sighting.position, map),
+      );
 
-  // If too far from guard post, return
-  if (distFromBase > cfg.guardRadius) {
-    const next = stepToward(agent.position, base, map);
-    return {
-      agentId: agent.id,
-      agentType: "defender",
-      action: "move",
-      reason: `Too far from base (${distFromBase} > ${cfg.guardRadius}), returning`,
-      from: agent.position,
-      to: next,
-      doctrineVersion: doctrine.version,
-    };
+      const pursuitStillFresh =
+        agent.workingMemory.taskStartTick !== null &&
+        tick - agent.workingMemory.taskStartTick <= THREAT_SIGHTING_EXPIRY_TICKS;
+
+      if (
+        !hasFreshMatchingSighting &&
+        pursuitStillFresh &&
+        isReachable(agent.position, agent.workingMemory.taskTarget, map) &&
+        distance(agent.position, agent.workingMemory.taskTarget) > 1
+      ) {
+        const next = stepToward(agent.position, agent.workingMemory.taskTarget, map);
+        agent.workingMemory.currentTask = `investigate:${pursuitThreatId}`;
+        return {
+          agentId: agent.id,
+          agentType: "defender",
+          action: "move",
+          reason: `Continuing pursuit of threat ${pursuitThreatId} toward last-known position (${agent.workingMemory.taskTarget.x}, ${agent.workingMemory.taskTarget.y})`,
+          from: agent.position,
+          to: next,
+          doctrineVersion: doctrine.version,
+        };
+      }
+
+      if (!hasFreshMatchingSighting && !isReachable(agent.position, agent.workingMemory.taskTarget, map)) {
+        clearPursuitMemory();
+      }
+    }
+
+    const sighting = findInvestigableSighting(
+      agent.position,
+      map,
+      threatSightings,
+      tick,
+      cfg.maxInvestigateDistance,
+      pursuitThreatId,
+    );
+
+    if (sighting) {
+      if (distance(agent.position, sighting.position) <= 1) {
+        clearPursuitMemory();
+      } else {
+        const sameThreat = pursuitThreatId === sighting.threatId;
+        agent.workingMemory.currentTask = `investigate:${sighting.threatId}`;
+        agent.workingMemory.taskTarget = sighting.position;
+        if (!sameThreat || agent.workingMemory.taskStartTick === null) {
+          agent.workingMemory.taskStartTick = tick;
+        }
+
+        const next = stepToward(agent.position, sighting.position, map);
+        return {
+          agentId: agent.id,
+          agentType: "defender",
+          action: "move",
+          reason: `Investigating last-known position of threat ${sighting.threatId} at (${sighting.position.x}, ${sighting.position.y})`,
+          from: agent.position,
+          to: next,
+          doctrineVersion: doctrine.version,
+        };
+      }
+    } else {
+      clearPursuitMemory();
+    }
+  } else {
+    clearPursuitMemory();
   }
 
-  return {
-    agentId: agent.id,
-    agentType: "defender",
-    action: "guard",
-    reason: `Holding position within guard radius (${distFromBase}/${cfg.guardRadius})`,
-    from: agent.position,
-    to: null,
-    doctrineVersion: doctrine.version,
-  };
+  return returnToGuardPost();
 }
 
 // --- Dispatch ---
@@ -542,14 +722,27 @@ export function executeAgent(
   newKnownResources: Position[],
   threats: Threat[],
   pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
+  threatSightings: ThreatSighting[] = [],
+  newThreatSightings: ThreatSighting[] = [],
 ): AgentAction {
   switch (agent.type) {
     case "gatherer":
       return executeGatherer(agent, doctrine, map, knownResources, tick, pendingEpisodes);
     case "scout":
-      return executeScout(agent, doctrine, map, tick, knownResources, newKnownResources, pendingEpisodes);
+      return executeScout(
+        agent,
+        doctrine,
+        map,
+        tick,
+        knownResources,
+        newKnownResources,
+        threatSightings,
+        newThreatSightings,
+        threats,
+        pendingEpisodes,
+      );
     case "defender":
-      return executeDefender(agent, doctrine, map, threats, tick, pendingEpisodes);
+      return executeDefender(agent, doctrine, map, threats, tick, threatSightings, pendingEpisodes);
   }
 }
 

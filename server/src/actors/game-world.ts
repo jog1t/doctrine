@@ -17,6 +17,7 @@ import type {
 import { DEFAULT_DOCTRINE } from "@doctrine/shared";
 import { generateMap } from "../engine/map-generator.js";
 import {
+  THREAT_SIGHTING_EXPIRY_TICKS,
   advanceEvictedAgentVersions,
   applyAction,
   applyMemoryUpdates,
@@ -103,8 +104,6 @@ function createInitialAgents(base: { x: number; y: number }, doctrineVersion: nu
 
 const THREAT_SPAWN_INTERVAL = 20; // ticks between threat spawns
 const MAX_THREATS = 3;
-const THREAT_SIGHTING_EXPIRY_TICKS = 20;
-
 // --- Tower construction ---
 
 function createInitialTower(base: Position): Tower {
@@ -367,13 +366,14 @@ export const gameWorld = actor({
         c.state.threats.push(spawnThreat(threatId, c.state.map, c.state.seed));
       }
 
-      const { debrief, newKnownResources, killedAgentIds } = runTick(
+      const { debrief, newKnownResources, newThreatSightings, killedAgentIds } = runTick(
         c.state.tick,
         c.state.agents,
         c.state.doctrine,
         c.state.doctrineHistory,
         c.state.map,
         c.state.knownResources,
+        c.state.threatSightings,
         c.state.threats,
       );
 
@@ -383,6 +383,9 @@ export const gameWorld = actor({
         if (!already) c.state.knownResources.push(pos);
       }
 
+      for (const sighting of newThreatSightings) {
+        c.state.threatSightings = upsertThreatSighting(c.state.threatSightings, sighting);
+      }
       const cleanedIntel = cleanupWorldIntel({
         map: c.state.map,
         knownResources: c.state.knownResources,
@@ -499,13 +502,16 @@ function runTick(
   doctrineHistory: Array<{ version: number; doctrine: Doctrine }>,
   map: GameMap,
   knownResources: Position[],
+  threatSightings: ThreatSighting[],
   threats: Threat[],
 ): {
   debrief: TickDebrief;
   newKnownResources: Position[];
+  newThreatSightings: ThreatSighting[];
   killedAgentIds: string[];
 } {
   const newKnownResources: Position[] = [];
+  const newThreatSightings: ThreatSighting[] = [];
   const pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }> = [];
 
   // Execute agent decisions (each uses the doctrine version they were last updated to).
@@ -516,7 +522,18 @@ function runTick(
       ...resolveDoctrineForAgent(agent, doctrine, doctrineHistory),
       basePosition: doctrine.basePosition,
     };
-    return executeAgent(agent, agentDoctrine, map, tick, knownResources, newKnownResources, threats, pendingEpisodes);
+    return executeAgent(
+      agent,
+      agentDoctrine,
+      map,
+      tick,
+      knownResources,
+      newKnownResources,
+      threats,
+      pendingEpisodes,
+      threatSightings,
+      newThreatSightings,
+    );
   });
 
   // Apply actions
@@ -548,6 +565,7 @@ function runTick(
       notices,
     },
     newKnownResources,
+    newThreatSightings,
     killedAgentIds,
   };
 }

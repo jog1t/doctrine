@@ -128,7 +128,9 @@ export function App() {
             map={gameState.map}
             agents={gameState.agents}
             basePosition={gameState.basePosition}
+            currentTick={gameState.tick}
             threats={gameState.threats ?? []}
+            threatSightings={gameState.threatSightings ?? []}
             towers={gameState.towers ?? []}
             doctrine={gameState.doctrine}
             previousDoctrine={gameState.previousDoctrine}
@@ -149,6 +151,7 @@ export function App() {
             agents={gameState.agents}
             doctrine={gameState.doctrine}
             previousDoctrine={gameState.previousDoctrine}
+            threatSightings={gameState.threatSightings ?? []}
           />
         </div>
       </div>

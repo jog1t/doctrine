@@ -164,8 +164,48 @@ describe("gameWorld executeTick", () => {
 
     expect(result.state.tick).toBe(50);
     expect(result.debrief.tick).toBe(50);
+    expect(result.state.threatSightings).toHaveLength(1);
+    expect(result.state.threatSightings[0]).toMatchObject({
+      threatId: "threat-1",
+      position: { x: 20, y: 12 },
+      lastSeenTick: 50,
+    });
+  });
+
+  it("refreshes threat intel through scout reporting during executeTick", async (c) => {
+    const { client } = await setupTest(c, registry);
+    const handle = client.gameWorld.getOrCreate(["execute-tick-threat-reporting"]);
+
+    await handle.initGame(123);
+
+    const gatewayUrl = await handle.getGatewayUrl();
+    const stateResponse = await fetch(`${gatewayUrl}/inspector/state`, {
+      headers: { Authorization: "Bearer token" },
+    });
+    expect(stateResponse.status).toBe(200);
+
+    const inspectorPayload = (await stateResponse.json()) as { state: GameWorldRuntimeState };
+    const actorState = inspectorPayload.state;
+    actorState.tick = 4;
+    actorState.agents = [makeAgent("scout-0", "scout", { x: 16, y: 12 })];
+    actorState.threats = [makeThreat("threat-0", { x: 18, y: 12 })];
+    actorState.threatSightings = [];
+
+    const patchResponse = await fetch(`${gatewayUrl}/inspector/state`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+      },
+      body: JSON.stringify({ state: actorState }),
+    });
+    expect(patchResponse.status).toBe(200);
+
+    const result = await handle.executeTick();
+
+    expect(result.state.tick).toBe(5);
     expect(result.state.threatSightings).toEqual([
-      { threatId: "threat-1", position: { x: 19, y: 12 }, lastSeenTick: 30 },
+      { threatId: "threat-0", position: { x: 18, y: 12 }, lastSeenTick: 5 },
     ]);
   });
 });
