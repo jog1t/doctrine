@@ -171,6 +171,10 @@ export const gameWorld = actor({
     },
 
     deployDoctrine: (c, doctrine: Doctrine) => {
+      if (!c.state.map) {
+        throw new Error("Game not initialized — call initGame before deployDoctrine");
+      }
+
       // Migrate persisted state that may predate M2 fields — identical to executeTick,
       // but needed here because deployDoctrine can be called before any tick runs.
       c.state.doctrineHistory ??= [];
