@@ -102,6 +102,13 @@ export interface Threat {
   maxHp: number;
 }
 
+/** Last-known intel about a hostile unit. */
+export interface ThreatSighting {
+  threatId: string;
+  position: Position;
+  lastSeenTick: number;
+}
+
 // --- Towers ---
 
 /** A communication tower — doctrine updates broadcast to agents within range */
@@ -133,6 +140,8 @@ export interface GathererDoctrine {
 export interface ScoutDoctrine {
   /** How far from base to patrol */
   patrolRadius: number;
+  /** Max range at which a scout can publish a threat sighting into shared intel. */
+  threatReportRadius: number;
   /**
    * How scouts choose where to move:
    * - "grid"      — map divided into sectors; each scout owns one and sweeps it
@@ -155,6 +164,8 @@ export interface DefenderDoctrine {
   guardRadius: number;
   /** Whether to chase threats or hold position */
   chaseThreats: boolean;
+  /** Max distance a defender will travel to investigate shared threat intel. */
+  maxInvestigateDistance: number;
   /** Max chase distance before returning */
   maxChaseDistance: number;
   memory: MemoryConfig;
@@ -215,6 +226,8 @@ export interface GameState {
   knownResources: Position[];
   /** Hostile units roaming the map */
   threats: Threat[];
+  /** Shared last-known positions for observed threats. */
+  threatSightings: ThreatSighting[];
   /** Communication towers — doctrine propagates to agents within broadcast radius */
   towers: Tower[];
 }
@@ -233,6 +246,7 @@ export const DEFAULT_DOCTRINE: Doctrine = {
   },
   scout: {
     patrolRadius: 12,
+    threatReportRadius: 6,
     patrolPattern: "grid",
     lingerTicks: 2,
     reportResourceFinds: true,
@@ -241,6 +255,7 @@ export const DEFAULT_DOCTRINE: Doctrine = {
   defender: {
     guardRadius: 4,
     chaseThreats: true,
+    maxInvestigateDistance: 10,
     maxChaseDistance: 6,
     memory: { maxEpisodes: 15, decayAfterTicks: 40 },
   },
@@ -275,9 +290,10 @@ export const DOCTRINE_SCHEMA = {
     },
     scout: {
       type: "object",
-      required: ["patrolRadius", "patrolPattern", "lingerTicks", "reportResourceFinds", "memory"],
+      required: ["patrolRadius", "threatReportRadius", "patrolPattern", "lingerTicks", "reportResourceFinds", "memory"],
       properties: {
         patrolRadius: { type: "number", minimum: 1, maximum: 20 },
+        threatReportRadius: { type: "number", minimum: 1, maximum: 20 },
         patrolPattern: { type: "string", enum: ["grid", "spiral", "perimeter"] },
         lingerTicks: { type: "number", minimum: 0, maximum: 10 },
         reportResourceFinds: { type: "boolean" },
@@ -293,10 +309,11 @@ export const DOCTRINE_SCHEMA = {
     },
     defender: {
       type: "object",
-      required: ["guardRadius", "chaseThreats", "maxChaseDistance", "memory"],
+      required: ["guardRadius", "chaseThreats", "maxInvestigateDistance", "maxChaseDistance", "memory"],
       properties: {
         guardRadius: { type: "number", minimum: 1, maximum: 15 },
         chaseThreats: { type: "boolean" },
+        maxInvestigateDistance: { type: "number", minimum: 1, maximum: 20 },
         maxChaseDistance: { type: "number", minimum: 1, maximum: 20 },
         memory: {
           type: "object",
