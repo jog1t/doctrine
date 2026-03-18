@@ -1,11 +1,13 @@
 import React from "react";
-import type { Agent, Doctrine, GameMap, Position, Threat, Tower } from "@doctrine/shared";
+import type { Agent, Doctrine, GameMap, Position, Threat, ThreatSighting, Tower } from "@doctrine/shared";
 
 interface MapViewProps {
   map: GameMap;
   agents: Agent[];
   basePosition: Position;
+  currentTick: number;
   threats: Threat[];
+  threatSightings: ThreatSighting[];
   towers: Tower[];
   doctrine: Doctrine;
   previousDoctrine: Doctrine | null;
@@ -52,7 +54,7 @@ function memoryLoad(agent: Agent, doctrine: Doctrine, previousDoctrine: Doctrine
   return Math.min(1, agent.episodes.length / maxEpisodes);
 }
 
-export function MapView({ map, agents, basePosition, threats, towers, doctrine, previousDoctrine }: MapViewProps) {
+export function MapView({ map, agents, basePosition, currentTick, threats, threatSightings, towers, doctrine, previousDoctrine }: MapViewProps) {
   if (!map) return null;
 
   const width = map.width * TILE_SIZE;
@@ -222,9 +224,56 @@ export function MapView({ map, agents, basePosition, threats, towers, doctrine, 
           );
         })}
 
+        {/* Last-known threat sightings */}
+        {threatSightings.map((sighting) => {
+          const isVisible = threats.some((threat) => threat.id === sighting.threatId);
+          const age = Math.max(0, currentTick - sighting.lastSeenTick);
+          const opacity = Math.max(0.2, 0.75 - age * 0.03);
+          const cx = sighting.position.x * TILE_SIZE + TILE_SIZE / 2;
+          const cy = sighting.position.y * TILE_SIZE + TILE_SIZE / 2;
+          const radius = 7 + Math.min(age, 6);
+
+          return (
+            <g key={`sighting-${sighting.threatId}`} opacity={isVisible ? 0.22 : opacity}>
+              <circle
+                cx={cx}
+                cy={cy}
+                r={radius}
+                fill="none"
+                stroke="var(--color-intel)"
+                strokeWidth={1.5}
+                strokeDasharray="3,3"
+              />
+              <circle
+                cx={cx}
+                cy={cy}
+                r={2}
+                fill="var(--color-intel)"
+              />
+              <title>
+                Intel: {sighting.threatId} last seen at ({sighting.position.x}, {sighting.position.y}) on tick {sighting.lastSeenTick}
+              </title>
+            </g>
+          );
+        })}
+
         {/* Agents — offset stacked agents so all are visible */}
         <AgentMarkers agents={agents} doctrine={doctrine} previousDoctrine={previousDoctrine} />
       </svg>
+
+      {threatSightings.length > 0 && (
+        <div className="map-legend">
+          <div className="map-legend-title">THREAT INTEL</div>
+          <div className="map-legend-item">
+            <span className="map-legend-swatch map-legend-swatch-threat" />
+            <span>hostile contact</span>
+          </div>
+          <div className="map-legend-item">
+            <span className="map-legend-swatch map-legend-swatch-sighting" />
+            <span>last-known hostile position</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

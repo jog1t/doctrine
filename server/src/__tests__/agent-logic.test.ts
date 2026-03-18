@@ -4,6 +4,18 @@ import { executeAgent, applyAction, applyMemoryUpdates, moveThreat, applyThreatD
 import { makeMap, makeAgent, makeThreat, makeDoctrine, placeResource, placeObstacle } from "./helpers.js";
 import { syncCanonicalBaseState } from "../actors/game-world.js";
 
+function executeDefenderWithSightings(
+  agent: ReturnType<typeof makeAgent>,
+  doctrine: ReturnType<typeof makeDoctrine>,
+  map: ReturnType<typeof makeMap>,
+  tick: number,
+  threats: ReturnType<typeof makeThreat>[],
+  pending: Array<{ agentId: string; record: EpisodeRecord }>,
+  threatSightings: Array<{ threatId: string; position: { x: number; y: number }; lastSeenTick: number }> = [],
+) {
+  return executeAgent(agent, doctrine, map, tick, [], [], threats, pending, threatSightings, []);
+}
+
 // ============================================================
 // Gatherer — working memory
 // ============================================================
@@ -236,6 +248,54 @@ describe("scout patrol and reporting", () => {
     expect(agent.workingMemory.currentTask).toBe("patrol");
     expect(agent.workingMemory.taskTarget).not.toBeNull();
   });
+
+  it("reports fresh threat sightings into global intel when a threat is in report range", () => {
+    const map = makeMap();
+    const agent = makeAgent("scout-0", "scout", { x: 16, y: 12 });
+    const doctrine = makeDoctrine({ scout: { ...makeDoctrine().scout, threatReportRadius: 4 } });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+    const newThreatSightings: Array<{ threatId: string; position: { x: number; y: number }; lastSeenTick: number }> = [];
+
+    executeAgent(
+      agent,
+      doctrine,
+      map,
+      5,
+      [],
+      [],
+      [makeThreat("threat-0", { x: 18, y: 12 })],
+      pending,
+      [],
+      newThreatSightings,
+    );
+
+    expect(newThreatSightings).toEqual([
+      { threatId: "threat-0", position: { x: 18, y: 12 }, lastSeenTick: 5 },
+    ]);
+  });
+
+  it("does not spam duplicate threat sightings when intel is already fresh and unchanged", () => {
+    const map = makeMap();
+    const agent = makeAgent("scout-0", "scout", { x: 16, y: 12 });
+    const doctrine = makeDoctrine({ scout: { ...makeDoctrine().scout, threatReportRadius: 4 } });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+    const newThreatSightings: Array<{ threatId: string; position: { x: number; y: number }; lastSeenTick: number }> = [];
+
+    executeAgent(
+      agent,
+      doctrine,
+      map,
+      8,
+      [],
+      [],
+      [makeThreat("threat-0", { x: 18, y: 12 })],
+      pending,
+      [{ threatId: "threat-0", position: { x: 18, y: 12 }, lastSeenTick: 6 }],
+      newThreatSightings,
+    );
+
+    expect(newThreatSightings).toEqual([]);
+  });
 });
 
 // ============================================================
@@ -399,6 +459,128 @@ describe("defender threat behavior", () => {
     expect(agent.workingMemory.currentTask).toBeNull();
     expect(agent.workingMemory.taskTarget).toBeNull();
     expect(agent.workingMemory.taskStartTick).toBeNull();
+  });
+
+  it("investigates reported threat locations when no threat is directly visible", () => {
+    const map = makeMap();
+    const agent = makeAgent("defender-0", "defender", { x: 16, y: 12 });
+    const doctrine = makeDoctrine({
+      defender: { ...makeDoctrine().defender, chaseThreats: true, maxInvestigateDistance: 8 },
+    });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeDefenderWithSightings(
+      agent,
+      doctrine,
+      map,
+      10,
+      [],
+      pending,
+      [{ threatId: "threat-0", position: { x: 20, y: 12 }, lastSeenTick: 9 }],
+    );
+
+    expect(action.action).toBe("move");
+    expect(action.reason).toContain("Investigating last-known position");
+    expect(agent.workingMemory.currentTask).toBe("investigate:threat-0");
+  });
+
+  it("continues toward the last-known threat position after temporary loss of sight", () => {
+    const map = makeMap();
+    const agent = makeAgent("defender-0", "defender", { x: 17, y: 12 }, {
+      workingMemory: {
+        currentTask: "investigate:threat-0",
+        taskTarget: { x: 20, y: 12 },
+        taskStartTick: 10,
+      },
+    });
+    const doctrine = makeDoctrine({
+      defender: { ...makeDoctrine().defender, chaseThreats: true, maxInvestigateDistance: 8 },
+    });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeDefenderWithSightings(agent, doctrine, map, 11, [], pending, []);
+
+    expect(action.action).toBe("move");
+    expect(action.reason).toContain("Continuing pursuit");
+    expect(action.to).toMatchObject({ x: 18, y: 12 });
+  });
+
+  it("switches from investigate to chase when the same threat is reacquired", () => {
+    const map = makeMap();
+    const agent = makeAgent("defender-0", "defender", { x: 17, y: 12 }, {
+      workingMemory: {
+        currentTask: "investigate:threat-0",
+        taskTarget: { x: 20, y: 12 },
+        taskStartTick: 10,
+      },
+    });
+    const doctrine = makeDoctrine({
+      defender: { ...makeDoctrine().defender, chaseThreats: true, maxChaseDistance: 6 },
+    });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeDefenderWithSightings(
+      agent,
+      doctrine,
+      map,
+      12,
+      [makeThreat("threat-0", { x: 19, y: 12 })],
+      pending,
+      [{ threatId: "threat-0", position: { x: 20, y: 12 }, lastSeenTick: 10 }],
+    );
+
+    expect(action.action).toBe("move");
+    expect(action.reason).toContain("Engaging threat threat-0");
+    expect(agent.workingMemory.currentTask).toBe("chase:threat-0");
+  });
+
+  it("clears investigation memory after reaching the reported location and finding nothing", () => {
+    const map = makeMap();
+    const agent = makeAgent("defender-0", "defender", { x: 19, y: 12 }, {
+      workingMemory: {
+        currentTask: "investigate:threat-0",
+        taskTarget: { x: 20, y: 12 },
+        taskStartTick: 10,
+      },
+    });
+    const doctrine = makeDoctrine({
+      defender: { ...makeDoctrine().defender, chaseThreats: true, guardRadius: 10, maxInvestigateDistance: 8 },
+    });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeDefenderWithSightings(
+      agent,
+      doctrine,
+      map,
+      12,
+      [],
+      pending,
+      [{ threatId: "threat-0", position: { x: 20, y: 12 }, lastSeenTick: 10 }],
+    );
+
+    expect(action.action).toBe("guard");
+    expect(agent.workingMemory.currentTask).toBeNull();
+    expect(agent.workingMemory.taskTarget).toBeNull();
+  });
+
+  it("clears stale investigation memory once the intel is expired", () => {
+    const map = makeMap();
+    const agent = makeAgent("defender-0", "defender", { x: 17, y: 12 }, {
+      workingMemory: {
+        currentTask: "investigate:threat-0",
+        taskTarget: { x: 20, y: 12 },
+        taskStartTick: 1,
+      },
+    });
+    const doctrine = makeDoctrine({
+      defender: { ...makeDoctrine().defender, chaseThreats: true, guardRadius: 10, maxInvestigateDistance: 8 },
+    });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeDefenderWithSightings(agent, doctrine, map, 25, [], pending, []);
+
+    expect(action.action).toBe("guard");
+    expect(agent.workingMemory.currentTask).toBeNull();
   });
 });
 
