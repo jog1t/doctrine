@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { EpisodeRecord } from "@doctrine/shared";
-import { executeAgent, applyAction, applyMemoryUpdates, moveThreat, applyThreatDamage } from "../engine/agent-logic.js";
+import { executeAgent, applyAction, applyMemoryUpdates, moveThreat, applyThreatDamage, advanceEvictedAgentVersions, spawnThreat } from "../engine/agent-logic.js";
 import { makeMap, makeAgent, makeThreat, makeDoctrine, placeResource, placeObstacle } from "./helpers.js";
 
 // ============================================================
@@ -697,5 +697,132 @@ describe("applyMemoryUpdates with doctrine history", () => {
 
     // Falls back to current doctrine (maxEpisodes=5), trims to 5
     expect(agent.episodes.length).toBe(5);
+  });
+});
+
+// ============================================================
+// P1 regression: doctrine version eviction after 6+ deploys
+// ============================================================
+
+describe("advanceEvictedAgentVersions", () => {
+  it("advances agent whose version was evicted from a full 5-entry history", () => {
+    // Simulates an agent stranded on v1 after 6 doctrine deploys (history now holds v2-v6).
+    const agent = makeAgent("scout-0", "scout", { x: 16, y: 12 }, { deployedDoctrineVersion: 1 });
+    const currentVersion = 7;
+    const history = [2, 3, 4, 5, 6].map((v) => ({ version: v, doctrine: makeDoctrine({ version: v }) }));
+
+    advanceEvictedAgentVersions([agent], currentVersion, history);
+
+    expect(agent.deployedDoctrineVersion).toBe(7);
+  });
+
+  it("does not advance an agent whose version is still present in history", () => {
+    const agent = makeAgent("scout-0", "scout", { x: 16, y: 12 }, { deployedDoctrineVersion: 5 });
+    const currentVersion = 7;
+    const history = [3, 4, 5, 6].map((v) => ({ version: v, doctrine: makeDoctrine({ version: v }) }));
+
+    advanceEvictedAgentVersions([agent], currentVersion, history);
+
+    expect(agent.deployedDoctrineVersion).toBe(5);
+  });
+
+  it("does not advance an agent already on the current version", () => {
+    const agent = makeAgent("scout-0", "scout", { x: 16, y: 12 }, { deployedDoctrineVersion: 7 });
+
+    advanceEvictedAgentVersions([agent], 7, []);
+
+    expect(agent.deployedDoctrineVersion).toBe(7);
+  });
+
+  it("advances only evicted agents, leaves others untouched", () => {
+    const evicted = makeAgent("scout-0", "scout", { x: 16, y: 12 }, { deployedDoctrineVersion: 1 });
+    const inHistory = makeAgent("scout-1", "scout", { x: 17, y: 12 }, { deployedDoctrineVersion: 4 });
+    const current = makeAgent("scout-2", "scout", { x: 18, y: 12 }, { deployedDoctrineVersion: 7 });
+    const history = [3, 4, 5, 6].map((v) => ({ version: v, doctrine: makeDoctrine({ version: v }) }));
+
+    advanceEvictedAgentVersions([evicted, inHistory, current], 7, history);
+
+    expect(evicted.deployedDoctrineVersion).toBe(7);
+    expect(inHistory.deployedDoctrineVersion).toBe(4);
+    expect(current.deployedDoctrineVersion).toBe(7);
+  });
+});
+
+// ============================================================
+// P2 regression: threat spawn varies by seed, lands on valid edge tile
+// ============================================================
+
+describe("spawnThreat", () => {
+  it("spawn positions vary across different game seeds", () => {
+    const map = makeMap();
+    const positions = new Set(
+      [1, 42, 100, 1000, 9999].map((seed) => {
+        const t = spawnThreat("threat-0", map, seed);
+        return `${t.position.x},${t.position.y}`;
+      }),
+    );
+    // 5 distinct seeds should produce more than one unique position
+    expect(positions.size).toBeGreaterThan(1);
+  });
+
+  it("always lands on a map edge tile", () => {
+    const map = makeMap();
+    for (const seed of [1, 42, 100, 999, 12345]) {
+      const t = spawnThreat("threat-0", map, seed);
+      const onEdge =
+        t.position.x === 0 ||
+        t.position.x === map.width - 1 ||
+        t.position.y === 0 ||
+        t.position.y === map.height - 1;
+      expect(onEdge).toBe(true);
+    }
+  });
+
+  it("is deterministic — same id and seed always produce the same position", () => {
+    const map = makeMap();
+    const t1 = spawnThreat("threat-0", map, 42);
+    const t2 = spawnThreat("threat-0", map, 42);
+    expect(t1.position).toMatchObject(t2.position);
+  });
+
+  it("skips obstacle tiles on the edge and lands on a passable tile", () => {
+    const map = makeMap();
+    // Find default spawn for seed=42, then block it
+    const t0 = spawnThreat("threat-0", map, 42);
+    placeObstacle(map, t0.position.x, t0.position.y);
+
+    const t1 = spawnThreat("threat-0", map, 42);
+    expect(t1.position).not.toMatchObject(t0.position);
+    expect(map.tiles[t1.position.y][t1.position.x].type).not.toBe("obstacle");
+  });
+});
+
+// ============================================================
+// PR: basePosition is canonical world-state — stale agents use current base
+// ============================================================
+
+describe("gatherer basePosition respects current doctrine regardless of agent version", () => {
+  it("gatherer on old doctrine still navigates toward current base, not stale base", () => {
+    const map = makeMap();
+    const oldBase = { x: 5, y: 5 };
+    const newBase = { x: 16, y: 12 };
+    // Agent committed to returning to old base
+    const agent = makeAgent("gatherer-0", "gatherer", { x: 6, y: 5 }, {
+      carrying: 5,
+      deployedDoctrineVersion: 1,
+      workingMemory: { currentTask: "return", taskTarget: oldBase, taskStartTick: 1 },
+    });
+    // Pass current doctrine (newBase) but old doctrine in history (oldBase)
+    const currentDoctrine = makeDoctrine({ version: 2, basePosition: newBase });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    // executeAgent receives the effective doctrine with basePosition overridden to newBase
+    const effectiveDoctrine = { ...currentDoctrine, basePosition: newBase };
+    const action = executeAgent(agent, effectiveDoctrine, map, 5, [], [], [], pending);
+
+    // With returnThreshold=3 and carrying=5, agent should return — but to newBase, not oldBase
+    expect(action.action).toBe("move");
+    // Should step toward (16,12), i.e., move right from (6,5) not stay near (5,5)
+    expect(action.to?.x).toBeGreaterThan(agent.position.x);
   });
 });

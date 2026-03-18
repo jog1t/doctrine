@@ -698,6 +698,62 @@ export function applyThreatDamage(
   return Array.from(killedSet);
 }
 
+/**
+ * Advance agents whose doctrine version has been evicted from history to currentVersion.
+ * Without this, a stranded agent appears stale in the UI but silently executes with the
+ * current doctrine config once its version falls out of the 5-entry history cap.
+ */
+export function advanceEvictedAgentVersions(
+  agents: Agent[],
+  currentVersion: number,
+  history: Array<{ version: number; doctrine: Doctrine }>,
+): void {
+  const knownVersions = new Set([currentVersion, ...history.map((h) => h.version)]);
+  for (const agent of agents) {
+    if (!knownVersions.has(agent.deployedDoctrineVersion)) {
+      agent.deployedDoctrineVersion = currentVersion;
+    }
+  }
+}
+
+/**
+ * Spawn a threat at a passable edge tile. Mixes in the game seed so each fresh
+ * game gets different spawn positions instead of always reusing the same spots.
+ */
+export function spawnThreat(id: string, map: GameMap, seed: number): Threat {
+  const hash = hashString(`${id}:${seed}`);
+  const edge = hash % 4;
+  const edgeLen = edge % 2 === 0 ? map.width : map.height;
+  const startPos = hash % edgeLen;
+
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i < edgeLen; i++) {
+    const pos = (startPos + i) % edgeLen;
+    switch (edge) {
+      case 0:
+        x = pos;
+        y = 0;
+        break;
+      case 1:
+        x = map.width - 1;
+        y = pos;
+        break;
+      case 2:
+        x = pos;
+        y = map.height - 1;
+        break;
+      default:
+        x = 0;
+        y = pos;
+        break;
+    }
+    if (map.tiles[y][x].type !== "obstacle") break;
+  }
+
+  return { id, position: { x, y }, hp: 3, maxHp: 3 };
+}
+
 // --- Helpers ---
 
 function hashString(str: string): number {

@@ -16,11 +16,13 @@ import type {
 import { DEFAULT_DOCTRINE } from "@doctrine/shared";
 import { generateMap } from "../engine/map-generator.js";
 import {
+  advanceEvictedAgentVersions,
   applyAction,
   applyMemoryUpdates,
   applyThreatDamage,
   executeAgent,
   moveThreat,
+  spawnThreat,
 } from "../engine/agent-logic.js";
 
 // --- Initial agent placement ---
@@ -79,41 +81,6 @@ function createInitialAgents(base: { x: number; y: number }, doctrineVersion: nu
 
 const THREAT_SPAWN_INTERVAL = 20; // ticks between threat spawns
 const MAX_THREATS = 3;
-
-function spawnThreat(id: string, map: GameMap): Threat {
-  // Spawn at a random map edge (deterministic per id to avoid Math.random)
-  const hash = hashId(id);
-  const edge = hash % 4;
-  let x: number;
-  let y: number;
-  switch (edge) {
-    case 0:
-      x = hash % map.width;
-      y = 0;
-      break;
-    case 1:
-      x = map.width - 1;
-      y = hash % map.height;
-      break;
-    case 2:
-      x = hash % map.width;
-      y = map.height - 1;
-      break;
-    default:
-      x = 0;
-      y = hash % map.height;
-      break;
-  }
-  return { id, position: { x, y }, hp: 3, maxHp: 3 };
-}
-
-function hashId(str: string): number {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
 
 // --- Tower construction ---
 
@@ -218,6 +185,10 @@ export const gameWorld = actor({
       }
       c.state.basePosition = newBase;
 
+      // Force-advance any agent whose version was just evicted from the history cap.
+      // Prevents the silent mismatch where the agent appears stale but executes current config.
+      advanceEvictedAgentVersions(c.state.agents, newVersion, c.state.doctrineHistory);
+
       // Immediately update agents within any tower's broadcast radius
       for (const agent of c.state.agents) {
         for (const tower of c.state.towers) {
@@ -252,6 +223,8 @@ export const gameWorld = actor({
         agent.episodes ??= [];
         agent.deployedDoctrineVersion ??= c.state.doctrine.version;
       }
+      // Advance any agent whose version was evicted from history on a previous deploy.
+      advanceEvictedAgentVersions(c.state.agents, c.state.doctrine.version, c.state.doctrineHistory);
       // Normalize pre-M2 debrief entries — old snapshots lack `notices` and
       // per-action `doctrineVersion`, which breaks UI rendering.
       for (const debrief of c.state.debriefs) {
@@ -270,7 +243,7 @@ export const gameWorld = actor({
         c.state.threats.length < MAX_THREATS
       ) {
         const threatId = `threat-${c.state.nextThreatId++}`;
-        c.state.threats.push(spawnThreat(threatId, c.state.map));
+        c.state.threats.push(spawnThreat(threatId, c.state.map, c.state.seed));
       }
 
       const { debrief, newKnownResources, killedAgentIds } = runTick(
@@ -410,9 +383,14 @@ function runTick(
   const newKnownResources: Position[] = [];
   const pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }> = [];
 
-  // Execute agent decisions (each uses the doctrine version they were last updated to)
+  // Execute agent decisions (each uses the doctrine version they were last updated to).
+  // basePosition is canonical world-state — always inject the current value so agents
+  // running stale doctrine never navigate to or deposit at an obsolete base.
   const actions = agents.map((agent) => {
-    const agentDoctrine = resolveDoctrineForAgent(agent, doctrine, doctrineHistory);
+    const agentDoctrine = {
+      ...resolveDoctrineForAgent(agent, doctrine, doctrineHistory),
+      basePosition: doctrine.basePosition,
+    };
     return executeAgent(agent, agentDoctrine, map, tick, knownResources, newKnownResources, threats, pendingEpisodes);
   });
 
