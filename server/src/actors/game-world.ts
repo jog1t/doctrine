@@ -11,6 +11,7 @@ import type {
   Position,
   TickDebrief,
   Threat,
+  Tile,
   Tower,
 } from "@doctrine/shared";
 import { DEFAULT_DOCTRINE } from "@doctrine/shared";
@@ -27,7 +28,26 @@ import {
 
 // --- Initial agent placement ---
 
-function createAgent(id: string, type: AgentType, base: { x: number; y: number }, doctrineVersion: number): Agent {
+/** Snap a desired spawn position to the nearest passable tile using a spiral scan. */
+function nearestPassable(desired: Position, map: GameMap): Position {
+  const tile: Tile = map.tiles[desired.y]?.[desired.x];
+  if (tile && tile.type !== "obstacle") return desired;
+
+  for (let r = 1; r < Math.max(map.width, map.height); r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue; // only shell
+        const x = desired.x + dx;
+        const y = desired.y + dy;
+        if (x < 0 || x >= map.width || y < 0 || y >= map.height) continue;
+        if (map.tiles[y][x].type !== "obstacle") return { x, y };
+      }
+    }
+  }
+  return desired; // pathological all-obstacle map
+}
+
+function createAgent(id: string, type: AgentType, base: { x: number; y: number }, doctrineVersion: number, map: GameMap): Agent {
   const offsets: Record<AgentType, { x: number; y: number }[]> = {
     gatherer: [
       { x: -1, y: 0 },
@@ -47,11 +67,13 @@ function createAgent(id: string, type: AgentType, base: { x: number; y: number }
   const typeOffsets = offsets[type];
   const idx = parseInt(id.split("-")[1] || "0") % typeOffsets.length;
   const offset = typeOffsets[idx];
+  const desired = { x: base.x + offset.x, y: base.y + offset.y };
+  const position = nearestPassable(desired, map);
 
   return {
     id,
     type,
-    position: { x: base.x + offset.x, y: base.y + offset.y },
+    position,
     status: "idle",
     carrying: 0,
     carryCapacity: type === "gatherer" ? 5 : 0,
@@ -65,15 +87,15 @@ function createAgent(id: string, type: AgentType, base: { x: number; y: number }
   };
 }
 
-function createInitialAgents(base: { x: number; y: number }, doctrineVersion: number): Agent[] {
+function createInitialAgents(base: { x: number; y: number }, doctrineVersion: number, map: GameMap): Agent[] {
   return [
-    createAgent("gatherer-0", "gatherer", base, doctrineVersion),
-    createAgent("gatherer-1", "gatherer", base, doctrineVersion),
-    createAgent("gatherer-2", "gatherer", base, doctrineVersion),
-    createAgent("scout-0", "scout", base, doctrineVersion),
-    createAgent("scout-1", "scout", base, doctrineVersion),
-    createAgent("defender-0", "defender", base, doctrineVersion),
-    createAgent("defender-1", "defender", base, doctrineVersion),
+    createAgent("gatherer-0", "gatherer", base, doctrineVersion, map),
+    createAgent("gatherer-1", "gatherer", base, doctrineVersion, map),
+    createAgent("gatherer-2", "gatherer", base, doctrineVersion, map),
+    createAgent("scout-0", "scout", base, doctrineVersion, map),
+    createAgent("scout-1", "scout", base, doctrineVersion, map),
+    createAgent("defender-0", "defender", base, doctrineVersion, map),
+    createAgent("defender-1", "defender", base, doctrineVersion, map),
   ];
 }
 
@@ -117,7 +139,7 @@ export const gameWorld = actor({
       const map = generateMap(gameSeed);
       const base = c.state.doctrine.basePosition;
       const docVersion = c.state.doctrine.version;
-      const agents = createInitialAgents(base, docVersion);
+      const agents = createInitialAgents(base, docVersion, map);
 
       c.state.phase = "setup";
       c.state.tick = 0;

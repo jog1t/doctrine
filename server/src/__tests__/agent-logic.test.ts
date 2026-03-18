@@ -921,6 +921,67 @@ describe("gatherer working memory cleared on depletion in applyAction", () => {
 });
 
 // ============================================================
+// spawnThreat: falls back when chosen edge is all obstacles
+// ============================================================
+
+describe("spawnThreat edge fallback", () => {
+  it("falls back to another edge when all tiles on chosen edge are obstacles", () => {
+    const map = makeMap();
+    // Block entire top edge (y=0)
+    for (let x = 0; x < map.width; x++) {
+      placeObstacle(map, x, 0);
+    }
+    // spawnThreat should find a passable tile on another edge
+    const t = spawnThreat("threat-0", map, 42);
+    expect(map.tiles[t.position.y][t.position.x].type).not.toBe("obstacle");
+  });
+});
+
+// ============================================================
+// executeScout: isNew deduplicated against knownSet prevents double-report
+// ============================================================
+
+describe("scout resource-found Set deduplication", () => {
+  it("does not emit resource-found if the resource was already added to newKnownResources this call", () => {
+    // Two scouts at the same position would each call executeAgent separately,
+    // but the shared newKnownResources array prevents double-reporting within one tick.
+    const map = makeMap();
+    placeResource(map, 16, 12, 5);
+    const newKnown = [{ x: 16, y: 12 }]; // already added by first scout this tick
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+    const doctrine = makeDoctrine({ scout: { ...makeDoctrine().scout, reportResourceFinds: true } });
+    const agent = makeAgent("scout-1", "scout", { x: 16, y: 12 });
+
+    executeAgent(agent, doctrine, map, 1, [], newKnown, [], pending);
+
+    expect(pending.filter((e) => e.record.eventType === "resource-found").length).toBe(0);
+  });
+});
+
+// ============================================================
+// Gatherer return: taskTarget updates when base moves after doctrine deploy
+// ============================================================
+
+describe("gatherer return taskTarget updates when base changes", () => {
+  it("updates taskTarget to current base when already returning but base has moved", () => {
+    const map = makeMap();
+    const oldBase = { x: 5, y: 5 };
+    const newBase = { x: 16, y: 12 };
+    const agent = makeAgent("gatherer-0", "gatherer", { x: 4, y: 5 }, {
+      carrying: 5,
+      workingMemory: { currentTask: "return", taskTarget: oldBase, taskStartTick: 1 },
+    });
+    // Doctrine now has newBase
+    const doctrine = makeDoctrine({ gatherer: { ...makeDoctrine().gatherer, returnThreshold: 3 }, basePosition: newBase });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    executeAgent(agent, doctrine, map, 5, [], [], [], pending);
+
+    expect(agent.workingMemory.taskTarget).toMatchObject(newBase);
+  });
+});
+
+// ============================================================
 // PR: basePosition is canonical world-state — stale agents use current base
 // ============================================================
 

@@ -115,8 +115,12 @@ function executeGatherer(
 
   // If carrying enough, return to base
   if (agent.carrying >= cfg.returnThreshold) {
-    // Clear working memory task if we're returning
-    if (agent.workingMemory.currentTask !== "return") {
+    // Update working memory when task changes OR when base has moved (doctrine redeploy)
+    const baseChanged =
+      agent.workingMemory.taskTarget === null ||
+      agent.workingMemory.taskTarget.x !== base.x ||
+      agent.workingMemory.taskTarget.y !== base.y;
+    if (agent.workingMemory.currentTask !== "return" || baseChanged) {
       agent.workingMemory.currentTask = "return";
       agent.workingMemory.taskTarget = base;
       agent.workingMemory.taskStartTick = tick;
@@ -271,6 +275,11 @@ function executeScout(
 
   // Report resources visible at current position
   if (cfg.reportResourceFinds) {
+    // Precompute known-position set for O(1) membership checks inside the vision loop
+    const knownSet = new Set<string>();
+    for (const p of knownResources) knownSet.add(`${p.x},${p.y}`);
+    for (const p of newKnownResources) knownSet.add(`${p.x},${p.y}`);
+
     for (let dy = -agent.visionRadius; dy <= agent.visionRadius; dy++) {
       for (let dx = -agent.visionRadius; dx <= agent.visionRadius; dx++) {
         const x = agent.position.x + dx;
@@ -279,10 +288,9 @@ function executeScout(
         if (distance(agent.position, { x, y }) > agent.visionRadius) continue;
         const tile = map.tiles[y][x];
         if (tile.type === "resource" && tile.resources > 0) {
-          const isNew =
-            !newKnownResources.some((p) => p.x === x && p.y === y) &&
-            !knownResources.some((p) => p.x === x && p.y === y);
-          if (isNew) {
+          const key = `${x},${y}`;
+          if (!knownSet.has(key)) {
+            knownSet.add(key); // mark immediately so sibling loops don't double-report
             newKnownResources.push({ x, y });
             // Record as episode
             pendingEpisodes.push({
@@ -719,39 +727,51 @@ export function advanceEvictedAgentVersions(
 /**
  * Spawn a threat at a passable edge tile. Mixes in the game seed so each fresh
  * game gets different spawn positions instead of always reusing the same spots.
+ * Falls back through the remaining edges if all tiles on the chosen edge are
+ * obstacles, so threats always spawn on a passable tile.
  */
 export function spawnThreat(id: string, map: GameMap, seed: number): Threat {
   const hash = hashString(`${id}:${seed}`);
-  const edge = hash % 4;
-  const edgeLen = edge % 2 === 0 ? map.width : map.height;
-  const startPos = hash % edgeLen;
+  const startEdge = hash % 4;
 
-  let x = 0;
-  let y = 0;
-  for (let i = 0; i < edgeLen; i++) {
-    const pos = (startPos + i) % edgeLen;
-    switch (edge) {
-      case 0:
-        x = pos;
-        y = 0;
-        break;
-      case 1:
-        x = map.width - 1;
-        y = pos;
-        break;
-      case 2:
-        x = pos;
-        y = map.height - 1;
-        break;
-      default:
-        x = 0;
-        y = pos;
-        break;
+  function findPassableOnEdge(edge: number): { x: number; y: number } | null {
+    const edgeLen = edge % 2 === 0 ? map.width : map.height;
+    const startPos = hash % edgeLen;
+    for (let i = 0; i < edgeLen; i++) {
+      const pos = (startPos + i) % edgeLen;
+      let x = 0;
+      let y = 0;
+      switch (edge) {
+        case 0:
+          x = pos;
+          y = 0;
+          break;
+        case 1:
+          x = map.width - 1;
+          y = pos;
+          break;
+        case 2:
+          x = pos;
+          y = map.height - 1;
+          break;
+        default:
+          x = 0;
+          y = pos;
+          break;
+      }
+      if (map.tiles[y][x].type !== "obstacle") return { x, y };
     }
-    if (map.tiles[y][x].type !== "obstacle") break;
+    return null;
   }
 
-  return { id, position: { x, y }, hp: 3, maxHp: 3 };
+  // Try the chosen edge first, then fall back through the other three in order
+  for (let i = 0; i < 4; i++) {
+    const pos = findPassableOnEdge((startEdge + i) % 4);
+    if (pos) return { id, position: pos, hp: 3, maxHp: 3 };
+  }
+
+  // Pathological map: all edges are obstacles — fall back to (0,0)
+  return { id, position: { x: 0, y: 0 }, hp: 3, maxHp: 3 };
 }
 
 // --- Helpers ---
