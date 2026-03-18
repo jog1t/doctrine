@@ -435,6 +435,24 @@ describe("applyAction", () => {
     expect(agent.carrying).toBe(0);
     expect(pending.some((e) => e.record.eventType === "task-completed")).toBe(true);
   });
+
+  it("records deposit episodes at the actual adjacent deposit position", () => {
+    const map = makeMap();
+    const agent = makeAgent("gatherer-0", "gatherer", { x: 15, y: 12 }, { carrying: 2 });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const collected = applyAction(
+      { agentId: "gatherer-0", agentType: "gatherer", action: "deposit", reason: "", from: { x: 15, y: 12 }, to: null, doctrineVersion: 1 },
+      [agent],
+      map,
+      1,
+      pending,
+    );
+
+    expect(collected).toBe(2);
+    expect(agent.position).toMatchObject({ x: 15, y: 12 });
+    expect(pending.find((e) => e.record.eventType === "task-completed")?.record.position).toMatchObject({ x: 15, y: 12 });
+  });
 });
 
 // ============================================================

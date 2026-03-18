@@ -135,7 +135,7 @@ function executeGatherer(
         action: "deposit",
         reason: `Carrying ${agent.carrying} resources, at base — depositing`,
         from: agent.position,
-        to: base,
+        to: null,
         doctrineVersion: doctrine.version,
       };
     }
