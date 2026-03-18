@@ -110,6 +110,24 @@ function createInitialTower(base: Position): Tower {
   return { id: "tower-0", position: { ...base }, broadcastRadius: 8 };
 }
 
+type MutableWorldState = {
+  doctrine: Doctrine;
+  basePosition: Position;
+  towers?: Tower[];
+};
+
+export function syncCanonicalBaseState(state: MutableWorldState): void {
+  const canonicalBase = state.doctrine.basePosition;
+  state.basePosition = { ...canonicalBase };
+
+  if (!state.towers) return;
+
+  const baseTower = state.towers.find((tower) => tower.id === "tower-0");
+  if (baseTower) {
+    baseTower.position = { ...canonicalBase };
+  }
+}
+
 // --- Actor definition ---
 
 export const gameWorld = actor({
@@ -199,13 +217,7 @@ export const gameWorld = actor({
       const newVersion = (c.state.doctrine.version || 0) + 1;
       // Normalize incoming doctrine so missing fields don't crash server or client.
       c.state.doctrine = normalizeDoctrine({ ...doctrine, version: newVersion });
-      const newBase = c.state.doctrine.basePosition;
-      // Keep the base tower in sync with basePosition — tower-0 is defined as the base tower.
-      if (newBase.x !== c.state.basePosition.x || newBase.y !== c.state.basePosition.y) {
-        const baseTower = c.state.towers.find((t) => t.id === "tower-0");
-        if (baseTower) baseTower.position = { ...newBase };
-      }
-      c.state.basePosition = newBase;
+      syncCanonicalBaseState(c.state);
 
       // Force-advance any agent whose version was just evicted from the history cap.
       // Prevents the silent mismatch where the agent appears stale but executes current config.
@@ -234,6 +246,9 @@ export const gameWorld = actor({
 
       // Migrate persisted doctrine that may predate newer fields
       c.state.doctrine = normalizeDoctrine(c.state.doctrine);
+      // Canonical basePosition lives on the doctrine; old persisted state can have a stale
+      // duplicated basePosition and base-tower position from before the canonical-base fix.
+      syncCanonicalBaseState(c.state);
 
       // Migrate persisted game state that may predate M2 fields
       c.state.threats ??= [];

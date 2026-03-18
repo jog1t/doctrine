@@ -416,6 +416,13 @@ function executeDefender(
   const base = doctrine.basePosition;
   const distFromBase = distance(agent.position, base);
 
+  const clearChaseMemory = () => {
+    if (!agent.workingMemory.currentTask?.startsWith("chase:")) return;
+    agent.workingMemory.currentTask = null;
+    agent.workingMemory.taskTarget = null;
+    agent.workingMemory.taskStartTick = null;
+  };
+
   // Check for nearby threats within vision radius
   const visibleThreat = findNearestThreat(agent.position, threats, agent.visionRadius);
 
@@ -464,12 +471,10 @@ function executeDefender(
         doctrineVersion: doctrine.version,
       };
     }
-  } else if (agent.workingMemory.currentTask?.startsWith("chase:")) {
-    // Lost sight of threat — clear working memory
-    agent.workingMemory.currentTask = null;
-    agent.workingMemory.taskTarget = null;
-    agent.workingMemory.taskStartTick = null;
   }
+
+  // If we are no longer actively chasing, stale chase memory should not survive into guard/return behavior.
+  clearChaseMemory();
 
   // If too far from guard post, return
   if (distFromBase > cfg.guardRadius) {

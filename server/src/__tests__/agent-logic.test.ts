@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { EpisodeRecord } from "@doctrine/shared";
 import { executeAgent, applyAction, applyMemoryUpdates, moveThreat, applyThreatDamage, advanceEvictedAgentVersions, spawnThreat } from "../engine/agent-logic.js";
 import { makeMap, makeAgent, makeThreat, makeDoctrine, placeResource, placeObstacle } from "./helpers.js";
+import { syncCanonicalBaseState } from "../actors/game-world.js";
 
 // ============================================================
 // Gatherer — working memory
@@ -333,6 +334,29 @@ describe("defender threat behavior", () => {
 
     expect(action.action).toBe("move");
     expect(action.reason).toContain("returning");
+  });
+
+  it("clears stale chase memory when a visible threat is not chaseable", () => {
+    const map = makeMap();
+    const agent = makeAgent("defender-0", "defender", { x: 16, y: 12 }, {
+      workingMemory: {
+        currentTask: "chase:threat-old",
+        taskTarget: { x: 18, y: 12 },
+        taskStartTick: 1,
+      },
+    });
+    const threat = makeThreat("threat-1", { x: 18, y: 12 });
+    const doctrine = makeDoctrine({
+      defender: { ...makeDoctrine().defender, chaseThreats: true, maxChaseDistance: 1, guardRadius: 4 },
+    });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeAgent(agent, doctrine, map, 2, [], [], [threat], pending);
+
+    expect(action.action).toBe("guard");
+    expect(agent.workingMemory.currentTask).toBeNull();
+    expect(agent.workingMemory.taskTarget).toBeNull();
+    expect(agent.workingMemory.taskStartTick).toBeNull();
   });
 });
 
@@ -1008,5 +1032,28 @@ describe("gatherer basePosition respects current doctrine regardless of agent ve
     expect(action.action).toBe("move");
     // Should step toward (16,12), i.e., move right from (6,5) not stay near (5,5)
     expect(action.to?.x).toBeGreaterThan(agent.position.x);
+  });
+});
+
+// ============================================================
+// Canonical base migration: persisted state syncs duplicated fields
+// ============================================================
+
+describe("syncCanonicalBaseState", () => {
+  it("updates duplicated basePosition and base tower from doctrine.basePosition", () => {
+    const state = {
+      doctrine: makeDoctrine({ basePosition: { x: 16, y: 12 } }),
+      basePosition: { x: 5, y: 5 },
+      towers: [
+        { id: "tower-0", position: { x: 5, y: 5 }, broadcastRadius: 8 },
+        { id: "tower-1", position: { x: 20, y: 20 }, broadcastRadius: 8 },
+      ],
+    };
+
+    syncCanonicalBaseState(state);
+
+    expect(state.basePosition).toMatchObject({ x: 16, y: 12 });
+    expect(state.towers[0].position).toMatchObject({ x: 16, y: 12 });
+    expect(state.towers[1].position).toMatchObject({ x: 20, y: 20 });
   });
 });
