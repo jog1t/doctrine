@@ -11,6 +11,7 @@ import type {
   Position,
   TickDebrief,
   Threat,
+  ThreatSighting,
   Tower,
 } from "@doctrine/shared";
 import { DEFAULT_DOCTRINE } from "@doctrine/shared";
@@ -102,6 +103,7 @@ function createInitialAgents(base: { x: number; y: number }, doctrineVersion: nu
 
 const THREAT_SPAWN_INTERVAL = 20; // ticks between threat spawns
 const MAX_THREATS = 3;
+const THREAT_SIGHTING_EXPIRY_TICKS = 20;
 
 // --- Tower construction ---
 
@@ -113,6 +115,26 @@ type MutableWorldState = {
   doctrine: Doctrine;
   basePosition: Position;
   towers?: Tower[];
+};
+
+export type GameWorldRuntimeState = {
+  phase: GamePhase;
+  tick: number;
+  map: GameMap | null;
+  agents: Agent[];
+  doctrine: Doctrine;
+  doctrineHistory: Array<{ version: number; doctrine: Doctrine }>;
+  basePosition: Position;
+  totalResourcesCollected: number;
+  debriefs: TickDebrief[];
+  seed: number;
+  tickIntervalMs: number;
+  autoTick: boolean;
+  knownResources: Position[];
+  threats: Threat[];
+  threatSightings: ThreatSighting[];
+  towers: Tower[];
+  nextThreatId: number;
 };
 
 export function syncCanonicalBaseState(state: MutableWorldState): void {
@@ -127,6 +149,62 @@ export function syncCanonicalBaseState(state: MutableWorldState): void {
   } else {
     state.towers.push(createInitialTower(canonicalBase));
   }
+}
+
+export function upsertThreatSighting(
+  sightings: ThreatSighting[],
+  sighting: ThreatSighting,
+): ThreatSighting[] {
+  const nextSightings = [...sightings];
+  const existingIndex = nextSightings.findIndex((entry) => entry.threatId === sighting.threatId);
+
+  if (existingIndex === -1) {
+    nextSightings.push(sighting);
+    return nextSightings;
+  }
+
+  if (sighting.lastSeenTick >= nextSightings[existingIndex].lastSeenTick) {
+    nextSightings[existingIndex] = sighting;
+  }
+
+  return nextSightings;
+}
+
+export function cleanupThreatSightings(
+  sightings: ThreatSighting[],
+  threats: Threat[],
+  tick: number,
+): ThreatSighting[] {
+  const activeThreatIds = new Set(threats.map((threat) => threat.id));
+
+  return sightings.filter((sighting) => {
+    if (!activeThreatIds.has(sighting.threatId)) return false;
+    return tick - sighting.lastSeenTick <= THREAT_SIGHTING_EXPIRY_TICKS;
+  });
+}
+
+export function cleanupWorldIntel(state: {
+  map: GameMap;
+  knownResources: Position[];
+  threats: Threat[];
+  threatSightings: ThreatSighting[];
+  tick: number;
+}): {
+  knownResources: Position[];
+  threatSightings: ThreatSighting[];
+} {
+  const knownResources = state.knownResources.filter((pos) => {
+    const tile = state.map.tiles[pos.y][pos.x];
+    return tile.type === "resource" && tile.resources > 0;
+  });
+
+  const threatSightings = cleanupThreatSightings(
+    state.threatSightings,
+    state.threats,
+    state.tick,
+  );
+
+  return { knownResources, threatSightings };
 }
 
 // --- Actor definition ---
@@ -148,6 +226,7 @@ export const gameWorld = actor({
     autoTick: false,
     knownResources: [] as Position[],
     threats: [] as Threat[],
+    threatSightings: [] as ThreatSighting[],
     towers: [] as Tower[],
     nextThreatId: 0,
   },
@@ -170,6 +249,7 @@ export const gameWorld = actor({
       c.state.autoTick = false;
       c.state.knownResources = [];
       c.state.threats = [];
+      c.state.threatSightings = [];
       c.state.towers = [createInitialTower(base)];
       c.state.nextThreatId = 0;
       c.state.doctrineHistory = [];
@@ -189,6 +269,7 @@ export const gameWorld = actor({
       c.state.doctrineHistory ??= [];
       c.state.towers ??= [createInitialTower(c.state.basePosition)];
       c.state.nextThreatId ??= 0;
+      c.state.threatSightings ??= [];
       for (const agent of c.state.agents) {
         agent.workingMemory ??= { currentTask: null, taskTarget: null, taskStartTick: null };
         agent.episodes ??= [];
@@ -257,6 +338,7 @@ export const gameWorld = actor({
       c.state.towers ??= [createInitialTower(c.state.basePosition)];
       c.state.doctrineHistory ??= [];
       c.state.nextThreatId ??= 0;
+      c.state.threatSightings ??= [];
       for (const agent of c.state.agents) {
         agent.workingMemory ??= { currentTask: null, taskTarget: null, taskStartTick: null };
         agent.episodes ??= [];
@@ -301,11 +383,15 @@ export const gameWorld = actor({
         if (!already) c.state.knownResources.push(pos);
       }
 
-      // Remove depleted tiles from known list
-      c.state.knownResources = c.state.knownResources.filter((pos) => {
-        const tile = c.state.map!.tiles[pos.y][pos.x];
-        return tile.type === "resource" && tile.resources > 0;
+      const cleanedIntel = cleanupWorldIntel({
+        map: c.state.map,
+        knownResources: c.state.knownResources,
+        threats: c.state.threats,
+        threatSightings: c.state.threatSightings,
+        tick: c.state.tick,
       });
+      c.state.knownResources = cleanedIntel.knownResources;
+      c.state.threatSightings = cleanedIntel.threatSightings;
 
       // Hard death: remove killed agents (episodic memory is gone with them)
       if (killedAgentIds.length > 0) {
@@ -485,7 +571,7 @@ function euclideanDist(a: Position, b: Position): number {
 }
 
 /** Fill in any missing fields from DEFAULT_DOCTRINE so old persisted state doesn't crash. */
-function normalizeDoctrine(doctrine: Doctrine): Doctrine {
+export function normalizeDoctrine(doctrine: Doctrine): Doctrine {
   return {
     ...DEFAULT_DOCTRINE,
     ...doctrine,
@@ -507,7 +593,7 @@ function normalizeDoctrine(doctrine: Doctrine): Doctrine {
   };
 }
 
-function getPublicState(state: {
+export function getPublicState(state: {
   phase: GamePhase;
   tick: number;
   map: GameMap | null;
@@ -519,6 +605,7 @@ function getPublicState(state: {
   debriefs: TickDebrief[];
   knownResources: Position[];
   threats: Threat[];
+  threatSightings: ThreatSighting[];
   towers: Tower[];
 }): GameState {
   // Expose the most-recent historical doctrine as previousDoctrine for the client UI
@@ -535,6 +622,7 @@ function getPublicState(state: {
     debriefs: state.debriefs,
     knownResources: state.knownResources,
     threats: state.threats,
+    threatSightings: state.threatSightings,
     towers: state.towers,
   };
 }
