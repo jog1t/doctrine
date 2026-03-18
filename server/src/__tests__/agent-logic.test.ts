@@ -280,6 +280,27 @@ describe("defender threat behavior", () => {
     expect(spotEpisodes.length).toBe(0);
   });
 
+  it("does not treat threat id prefixes as the same sighting", () => {
+    const map = makeMap();
+    const threat = makeThreat("threat-10", { x: 18, y: 12 });
+    const agent = makeAgent("defender-0", "defender", { x: 16, y: 12 }, {
+      episodes: [{
+        tick: 1,
+        eventType: "threat-spotted",
+        position: { x: 18, y: 12 },
+        detail: "Spotted threat threat-1 at distance 2",
+      }],
+    });
+    const doctrine = makeDoctrine({ defender: { ...makeDoctrine().defender, chaseThreats: true } });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    executeAgent(agent, doctrine, map, 3, [], [], [threat], pending);
+
+    const spotEpisodes = pending.filter((e) => e.record.eventType === "threat-spotted");
+    expect(spotEpisodes.length).toBe(1);
+    expect(spotEpisodes[0].record.detail).toContain("threat-10");
+  });
+
   it("holds position when chaseThreats=false even with visible threat", () => {
     const map = makeMap();
     const agent = makeAgent("defender-0", "defender", { x: 16, y: 12 });

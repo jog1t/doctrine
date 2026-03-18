@@ -432,10 +432,11 @@ function executeDefender(
     // Record threat sighting as episode if not already recorded recently.
     // Dedup by threat ID (via detail), not position — threats move each tick
     // so position-based matching would re-record the same threat every tick.
+    const spotPrefix = `Spotted threat ${visibleThreat.id} `;
     const recentSpot = agent.episodes.some(
       (e) =>
         e.eventType === "threat-spotted" &&
-        e.detail.includes(visibleThreat.id) &&
+        e.detail.startsWith(spotPrefix) &&
         tick - e.tick < 5,
     );
     if (!recentSpot) {
