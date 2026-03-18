@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import type { GameState, TickDebrief, Doctrine } from "@doctrine/shared";
-import { DEFAULT_DOCTRINE } from "@doctrine/shared";
 import { useActor } from "./rivet.js";
 import { MapView } from "./components/MapView.js";
 import { DoctrineEditor } from "./components/DoctrineEditor.js";
@@ -11,7 +10,6 @@ import { Header } from "./components/Header.js";
 export function App() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [latestDebrief, setLatestDebrief] = useState<TickDebrief | null>(null);
-  const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoTicking, setAutoTicking] = useState(false);
   const autoTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -23,7 +21,6 @@ export function App() {
   world.useEvent("gameInitialized", (state: GameState) => {
     setGameState(state);
     setLatestDebrief(null);
-    setConnected(true);
   });
 
   world.useEvent("tickCompleted", (data: { state: GameState; debrief: TickDebrief }) => {
@@ -31,8 +28,8 @@ export function App() {
     setLatestDebrief(data.debrief);
   });
 
-  world.useEvent("doctrineDeployed", (data: { doctrine: Doctrine }) => {
-    setGameState((prev) => (prev ? { ...prev, doctrine: data.doctrine } : null));
+  world.useEvent("doctrineDeployed", (state: GameState) => {
+    setGameState(state);
   });
 
   // Initialize game on first connection
@@ -42,7 +39,6 @@ export function App() {
         .initGame()
         .then((state: GameState) => {
           setGameState(state);
-          setConnected(true);
         })
         .catch((err: Error) => setError(err.message));
     }
@@ -132,6 +128,10 @@ export function App() {
             map={gameState.map}
             agents={gameState.agents}
             basePosition={gameState.basePosition}
+            threats={gameState.threats ?? []}
+            towers={gameState.towers ?? []}
+            doctrine={gameState.doctrine}
+            previousDoctrine={gameState.previousDoctrine}
           />
           <GameControls
             onTick={handleTick}
@@ -140,12 +140,16 @@ export function App() {
             autoTicking={autoTicking}
             tickSpeed={tickSpeed}
             onTickSpeedChange={setTickSpeed}
-            phase={gameState.phase}
           />
         </div>
         <div className="app-sidebar">
           <DoctrineEditor doctrine={gameState.doctrine} onDeploy={handleDeployDoctrine} />
-          <TickDebriefPanel debrief={latestDebrief} />
+          <TickDebriefPanel
+            debrief={latestDebrief}
+            agents={gameState.agents}
+            doctrine={gameState.doctrine}
+            previousDoctrine={gameState.previousDoctrine}
+          />
         </div>
       </div>
     </div>

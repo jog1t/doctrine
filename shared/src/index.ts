@@ -27,11 +27,46 @@ export interface GameMap {
   tiles: Tile[][];
 }
 
+// --- Memory ---
+
+/** Persists task state across ticks (Tier 1: Working Memory) */
+export interface WorkingMemory {
+  /** Current task the agent is committed to */
+  currentTask: string | null;
+  /** Target position of the current task */
+  taskTarget: Position | null;
+  /** Tick when the current task was started */
+  taskStartTick: number | null;
+}
+
+export type EpisodeEventType =
+  | "resource-found"
+  | "resource-depleted"
+  | "task-completed"
+  | "threat-spotted"
+  | "damage-taken";
+
+/** A single recorded observation (Tier 2: Episodic Memory) */
+export interface EpisodeRecord {
+  tick: number;
+  eventType: EpisodeEventType;
+  position: Position;
+  detail: string;
+}
+
+/** Memory configuration per agent type */
+export interface MemoryConfig {
+  /** Maximum episodes to retain. 0 = unlimited (no trimming by count). */
+  maxEpisodes: number;
+  /** Episodes older than this many ticks are dropped. 0 = keep forever. */
+  decayAfterTicks: number;
+}
+
 // --- Agents ---
 
 export type AgentType = "gatherer" | "scout" | "defender";
 
-export type AgentStatus = "idle" | "moving" | "gathering" | "scouting" | "defending" | "returning";
+export type AgentStatus = "idle" | "moving" | "gathering" | "depositing" | "scouting" | "defending" | "returning";
 
 export interface Agent {
   id: string;
@@ -49,6 +84,32 @@ export interface Agent {
   target: Position | null;
   /** Vision radius in tiles */
   visionRadius: number;
+  /** Working memory: persists current task across ticks */
+  workingMemory: WorkingMemory;
+  /** Episodic memory: log of significant observed events */
+  episodes: EpisodeRecord[];
+  /** The doctrine version this agent is currently running */
+  deployedDoctrineVersion: number;
+}
+
+// --- Threats ---
+
+/** A hostile unit that wanders and damages agents */
+export interface Threat {
+  id: string;
+  position: Position;
+  hp: number;
+  maxHp: number;
+}
+
+// --- Towers ---
+
+/** A communication tower — doctrine updates broadcast to agents within range */
+export interface Tower {
+  id: string;
+  position: Position;
+  /** Radius in which doctrine propagates each tick */
+  broadcastRadius: number;
 }
 
 // --- Doctrine ---
@@ -66,6 +127,7 @@ export interface GathererDoctrine {
    * When false, local scan runs first; intel is only a fallback.
    */
   preferScoutIntel: boolean;
+  memory: MemoryConfig;
 }
 
 export interface ScoutDoctrine {
@@ -85,6 +147,7 @@ export interface ScoutDoctrine {
    * that gatherers can query when their local searchRadius finds nothing.
    */
   reportResourceFinds: boolean;
+  memory: MemoryConfig;
 }
 
 export interface DefenderDoctrine {
@@ -94,6 +157,7 @@ export interface DefenderDoctrine {
   chaseThreats: boolean;
   /** Max chase distance before returning */
   maxChaseDistance: number;
+  memory: MemoryConfig;
 }
 
 export interface Doctrine {
@@ -115,6 +179,8 @@ export interface AgentAction {
   reason: string;
   from: Position;
   to: Position | null;
+  /** Which doctrine version the agent used for this decision */
+  doctrineVersion: number;
 }
 
 export interface TickDebrief {
@@ -123,6 +189,8 @@ export interface TickDebrief {
   actions: AgentAction[];
   resourcesCollected: number;
   totalResources: number;
+  /** Notices about redundant or suboptimal behavior detected this tick */
+  notices: string[];
 }
 
 // --- Game State ---
@@ -135,6 +203,8 @@ export interface GameState {
   map: GameMap;
   agents: Agent[];
   doctrine: Doctrine;
+  /** Most recent prior doctrine — exposed for UI display only. Agent version resolution uses doctrineHistory on the server. */
+  previousDoctrine: Doctrine | null;
   basePosition: Position;
   totalResourcesCollected: number;
   debriefs: TickDebrief[];
@@ -143,6 +213,10 @@ export interface GameState {
    * Gatherers fall back to this list when their local scan finds nothing.
    */
   knownResources: Position[];
+  /** Hostile units roaming the map */
+  threats: Threat[];
+  /** Communication towers — doctrine propagates to agents within broadcast radius */
+  towers: Tower[];
 }
 
 // --- Default Doctrine ---
@@ -155,17 +229,20 @@ export const DEFAULT_DOCTRINE: Doctrine = {
     returnThreshold: 3,
     preferClosest: true,
     preferScoutIntel: true,
+    memory: { maxEpisodes: 10, decayAfterTicks: 30 },
   },
   scout: {
     patrolRadius: 12,
     patrolPattern: "grid",
     lingerTicks: 2,
     reportResourceFinds: true,
+    memory: { maxEpisodes: 20, decayAfterTicks: 50 },
   },
   defender: {
     guardRadius: 4,
-    chaseThreats: false,
+    chaseThreats: true,
     maxChaseDistance: 6,
+    memory: { maxEpisodes: 15, decayAfterTicks: 40 },
   },
   basePosition: { x: 16, y: 12 },
 };
@@ -180,31 +257,55 @@ export const DOCTRINE_SCHEMA = {
     name: { type: "string", minLength: 1, maxLength: 64 },
     gatherer: {
       type: "object",
-      required: ["searchRadius", "returnThreshold", "preferClosest", "preferScoutIntel"],
+      required: ["searchRadius", "returnThreshold", "preferClosest", "preferScoutIntel", "memory"],
       properties: {
         searchRadius: { type: "number", minimum: 1, maximum: 32 },
         returnThreshold: { type: "number", minimum: 1, maximum: 10 },
         preferClosest: { type: "boolean" },
         preferScoutIntel: { type: "boolean" },
+        memory: {
+          type: "object",
+          required: ["maxEpisodes", "decayAfterTicks"],
+          properties: {
+            maxEpisodes: { type: "number", minimum: 0, maximum: 100 },
+            decayAfterTicks: { type: "number", minimum: 0, maximum: 500 },
+          },
+        },
       },
     },
     scout: {
       type: "object",
-      required: ["patrolRadius", "patrolPattern", "lingerTicks", "reportResourceFinds"],
+      required: ["patrolRadius", "patrolPattern", "lingerTicks", "reportResourceFinds", "memory"],
       properties: {
         patrolRadius: { type: "number", minimum: 1, maximum: 20 },
         patrolPattern: { type: "string", enum: ["grid", "spiral", "perimeter"] },
         lingerTicks: { type: "number", minimum: 0, maximum: 10 },
         reportResourceFinds: { type: "boolean" },
+        memory: {
+          type: "object",
+          required: ["maxEpisodes", "decayAfterTicks"],
+          properties: {
+            maxEpisodes: { type: "number", minimum: 0, maximum: 100 },
+            decayAfterTicks: { type: "number", minimum: 0, maximum: 500 },
+          },
+        },
       },
     },
     defender: {
       type: "object",
-      required: ["guardRadius", "chaseThreats", "maxChaseDistance"],
+      required: ["guardRadius", "chaseThreats", "maxChaseDistance", "memory"],
       properties: {
         guardRadius: { type: "number", minimum: 1, maximum: 15 },
         chaseThreats: { type: "boolean" },
         maxChaseDistance: { type: "number", minimum: 1, maximum: 20 },
+        memory: {
+          type: "object",
+          required: ["maxEpisodes", "decayAfterTicks"],
+          properties: {
+            maxEpisodes: { type: "number", minimum: 0, maximum: 100 },
+            decayAfterTicks: { type: "number", minimum: 0, maximum: 500 },
+          },
+        },
       },
     },
     basePosition: {

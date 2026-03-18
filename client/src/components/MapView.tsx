@@ -1,77 +1,143 @@
 import React from "react";
-import type { GameMap, Agent, Position } from "@doctrine/shared";
+import type { Agent, Doctrine, GameMap, Position, Threat, Tower } from "@doctrine/shared";
 
 interface MapViewProps {
   map: GameMap;
   agents: Agent[];
   basePosition: Position;
+  threats: Threat[];
+  towers: Tower[];
+  doctrine: Doctrine;
+  previousDoctrine: Doctrine | null;
 }
 
 const TILE_SIZE = 22;
 
 const TILE_COLORS: Record<string, string> = {
-  empty: "#2a2a28",
-  resource: "#4a6741",
-  obstacle: "#1a1a18",
+  empty: "var(--map-tile-empty)",
+  resource: "var(--map-tile-resource)",
+  obstacle: "var(--map-tile-obstacle)",
 };
 
 const AGENT_COLORS: Record<string, string> = {
-  gatherer: "#c4a35a",
-  scout: "#5a8fc4",
-  defender: "#c45a5a",
+  gatherer: "var(--color-gatherer)",
+  scout: "var(--color-scout)",
+  defender: "var(--color-defender)",
 };
 
-const STATUS_SHAPES: Record<string, string> = {
-  idle: "circle",
-  moving: "triangle",
-  gathering: "diamond",
-  scouting: "circle",
-  defending: "square",
-  returning: "triangle",
-};
+const STACKED_AGENT_OFFSETS = [
+  { dx: 0, dy: 0 },
+  { dx: 5, dy: -5 },
+  { dx: -5, dy: 5 },
+  { dx: 5, dy: 5 },
+];
 
-export function MapView({ map, agents, basePosition }: MapViewProps) {
+function memoryLoad(agent: Agent, doctrine: Doctrine, previousDoctrine: Doctrine | null): number {
+  // Resolve the doctrine this agent is actually running on the server
+  const agentDoctrine =
+    agent.deployedDoctrineVersion === doctrine.version ? doctrine :
+    agent.deployedDoctrineVersion === previousDoctrine?.version ? previousDoctrine :
+    null; // version too old — not available on client; show neutral ring
+
+  if (!agentDoctrine) return 0.3;
+
+  let maxEpisodes: number;
+  if (agent.type === "gatherer") maxEpisodes = agentDoctrine.gatherer.memory.maxEpisodes;
+  else if (agent.type === "scout") maxEpisodes = agentDoctrine.scout.memory.maxEpisodes;
+  else if (agent.type === "defender") maxEpisodes = agentDoctrine.defender.memory.maxEpisodes;
+  else maxEpisodes = 10;
+
+  // Unlimited (maxEpisodes=0): scale by a fixed cap so the ring remains informative
+  if (maxEpisodes === 0) return agent.episodes.length > 0 ? Math.min(1, agent.episodes.length / 50) : 0;
+  return Math.min(1, agent.episodes.length / maxEpisodes);
+}
+
+export function MapView({ map, agents, basePosition, threats, towers, doctrine, previousDoctrine }: MapViewProps) {
   if (!map) return null;
 
   const width = map.width * TILE_SIZE;
   const height = map.height * TILE_SIZE;
+  const tileElements = [];
+  const resourceElements = [];
 
-  return (
-    <div className="map-container">
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="map-svg">
-        {/* Tiles */}
-        {map.tiles.map((row, y) =>
-          row.map((tile, x) => (
+  for (let y = 0; y < map.tiles.length; y++) {
+    const row = map.tiles[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      tileElements.push(
+        <g key={`tile-${x}-${y}`}>
+          <rect
+            x={x * TILE_SIZE}
+            y={y * TILE_SIZE}
+            width={TILE_SIZE}
+            height={TILE_SIZE}
+            fill={TILE_COLORS[tile.type]}
+            stroke="var(--map-grid-stroke)"
+            strokeWidth={0.5}
+          />
+          {tile.type === "obstacle" && (
             <rect
-              key={`${x}-${y}`}
               x={x * TILE_SIZE}
               y={y * TILE_SIZE}
               width={TILE_SIZE}
               height={TILE_SIZE}
-              fill={TILE_COLORS[tile.type]}
-              stroke="#1a1a18"
+              fill="url(#hatch)"
+              stroke="var(--map-grid-stroke)"
               strokeWidth={0.5}
-            >
-              {tile.type === "resource" && <title>Resource: {tile.resources}</title>}
-            </rect>
-          )),
-        )}
+            />
+          )}
+          {tile.type === "resource" && <title>Resource: {tile.resources}</title>}
+        </g>,
+      );
+
+      if (tile.type !== "resource" || tile.resources <= 0) continue;
+
+      const frac = tile.resources / 10;
+      const r = Math.max(2, frac * (TILE_SIZE / 3));
+      resourceElements.push(
+        <circle
+          key={`res-${x}-${y}`}
+          cx={x * TILE_SIZE + TILE_SIZE / 2}
+          cy={y * TILE_SIZE + TILE_SIZE / 2}
+          r={r}
+          fill="var(--color-success)"
+          opacity={0.4 + frac * 0.5}
+        />,
+      );
+    }
+  }
+
+  return (
+    <div className="map-container">
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="map-svg">
+        <defs>
+          {/* Hatch pattern for obstacles */}
+          <pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <title>Obstacle hatch pattern</title>
+            <line x1="0" y1="0" x2="0" y2="4" stroke="var(--map-hatch-stroke)" strokeWidth="1.5" />
+          </pattern>
+        </defs>
+
+        {/* Tiles */}
+        {tileElements}
 
         {/* Resource indicators */}
-        {map.tiles.flatMap((row, y) =>
-          row.map((tile, x) =>
-            tile.type === "resource" && tile.resources > 0 ? (
-              <circle
-                key={`res-${x}-${y}`}
-                cx={x * TILE_SIZE + TILE_SIZE / 2}
-                cy={y * TILE_SIZE + TILE_SIZE / 2}
-                r={Math.max(2, (tile.resources / 10) * (TILE_SIZE / 3))}
-                fill="#6a9761"
-                opacity={0.7}
-              />
-            ) : null,
-          ),
-        )}
+        {resourceElements}
+
+        {/* Tower broadcast radius */}
+        {towers.map((tower) => (
+          <circle
+            key={`tower-range-${tower.id}`}
+            cx={tower.position.x * TILE_SIZE + TILE_SIZE / 2}
+            cy={tower.position.y * TILE_SIZE + TILE_SIZE / 2}
+            r={tower.broadcastRadius * TILE_SIZE}
+            fill="none"
+            stroke="var(--map-base-stroke)"
+            strokeWidth={0.5}
+            strokeDasharray="4,4"
+            opacity={0.2}
+          />
+        ))}
 
         {/* Base */}
         <rect
@@ -80,7 +146,7 @@ export function MapView({ map, agents, basePosition }: MapViewProps) {
           width={TILE_SIZE - 4}
           height={TILE_SIZE - 4}
           fill="none"
-          stroke="#e8d5b0"
+          stroke="var(--map-base-stroke)"
           strokeWidth={2}
           strokeDasharray="3,2"
         />
@@ -89,7 +155,7 @@ export function MapView({ map, agents, basePosition }: MapViewProps) {
           y={basePosition.y * TILE_SIZE + TILE_SIZE / 2 + 1}
           textAnchor="middle"
           dominantBaseline="middle"
-          fill="#e8d5b0"
+          fill="var(--map-base-stroke)"
           fontSize={8}
           fontFamily="IBM Plex Mono"
           fontWeight={600}
@@ -97,38 +163,172 @@ export function MapView({ map, agents, basePosition }: MapViewProps) {
           B
         </text>
 
-        {/* Agents */}
-        {agents.map((agent) => {
-          const cx = agent.position.x * TILE_SIZE + TILE_SIZE / 2;
-          const cy = agent.position.y * TILE_SIZE + TILE_SIZE / 2;
-          const color = AGENT_COLORS[agent.type];
-          const r = 5;
+        {/* Towers */}
+        {towers.map((tower) => (
+          <g key={tower.id}>
+            <rect
+              x={tower.position.x * TILE_SIZE + 4}
+              y={tower.position.y * TILE_SIZE + 4}
+              width={TILE_SIZE - 8}
+              height={TILE_SIZE - 8}
+              fill="var(--map-tower-fill)"
+              stroke="var(--map-base-stroke)"
+              strokeWidth={1.5}
+            />
+            <text
+              x={tower.position.x * TILE_SIZE + TILE_SIZE / 2}
+              y={tower.position.y * TILE_SIZE + TILE_SIZE / 2 + 1}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fill="var(--map-base-stroke)"
+              fontSize={6}
+              fontFamily="IBM Plex Mono"
+              fontWeight={600}
+            >
+              T
+            </text>
+            <title>Tower — broadcasts doctrine within radius {tower.broadcastRadius}</title>
+          </g>
+        ))}
 
+        {/* Threats */}
+        {threats.map((threat) => {
+          const cx = threat.position.x * TILE_SIZE + TILE_SIZE / 2;
+          const cy = threat.position.y * TILE_SIZE + TILE_SIZE / 2;
+          const r = 5;
           return (
-            <g key={agent.id}>
-              {/* Agent shape */}
-              {renderAgentShape(cx, cy, r, agent.status, color)}
-              {/* Carrying indicator for gatherers */}
-              {agent.type === "gatherer" && agent.carrying > 0 && (
-                <circle cx={cx + 5} cy={cy - 5} r={2} fill="#e8d5b0" />
-              )}
+            <g key={threat.id}>
+              {/* X shape */}
+              <line
+                x1={cx - r}
+                y1={cy - r}
+                x2={cx + r}
+                y2={cy + r}
+                stroke="var(--color-error)"
+                strokeWidth={2}
+              />
+              <line
+                x1={cx + r}
+                y1={cy - r}
+                x2={cx - r}
+                y2={cy + r}
+                stroke="var(--color-error)"
+                strokeWidth={2}
+              />
               <title>
-                {agent.id} [{agent.status}]
-                {agent.carrying > 0 ? ` carrying: ${agent.carrying}` : ""}
+                {threat.id} — HP {threat.hp}/{threat.maxHp}
               </title>
             </g>
           );
         })}
+
+        {/* Agents — offset stacked agents so all are visible */}
+        <AgentMarkers agents={agents} doctrine={doctrine} previousDoctrine={previousDoctrine} />
       </svg>
     </div>
   );
+}
+
+function AgentMarkers({
+  agents,
+  doctrine,
+  previousDoctrine,
+}: {
+  agents: Agent[];
+  doctrine: Doctrine;
+  previousDoctrine: Doctrine | null;
+}) {
+  const tileCounts = new Map<string, number>();
+  const tileSlot = new Map<string, number>();
+
+  for (const agent of agents) {
+    const key = `${agent.position.x},${agent.position.y}`;
+    const count = tileCounts.get(key) ?? 0;
+    tileSlot.set(agent.id, count);
+    tileCounts.set(key, count + 1);
+  }
+
+  return agents.map((agent) => {
+    const slot = tileSlot.get(agent.id) ?? 0;
+    const tileTotal = tileCounts.get(`${agent.position.x},${agent.position.y}`) ?? 1;
+    const offset = tileTotal > 1 ? (STACKED_AGENT_OFFSETS[slot % STACKED_AGENT_OFFSETS.length] ?? STACKED_AGENT_OFFSETS[0]) : { dx: 0, dy: 0 };
+    const cx = agent.position.x * TILE_SIZE + TILE_SIZE / 2 + offset.dx;
+    const cy = agent.position.y * TILE_SIZE + TILE_SIZE / 2 + offset.dy;
+    const color = AGENT_COLORS[agent.type];
+    const r = 5;
+    const load = memoryLoad(agent, doctrine, previousDoctrine);
+
+    return (
+      <g key={agent.id}>
+        {load > 0 && (
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r + 3}
+            fill="none"
+            stroke={color}
+            strokeWidth={1.5}
+            opacity={load * 0.7}
+          />
+        )}
+        {agent.deployedDoctrineVersion < doctrine.version && (
+          <circle
+            cx={cx + 6}
+            cy={cy - 6}
+            r={2.5}
+            fill="var(--color-doctrine-stale)"
+            opacity={0.9}
+          />
+        )}
+        {renderAgentShape(cx, cy, r, agent.status, color)}
+        {agent.type === "gatherer" && agent.carrying > 0 && (
+          <text
+            x={cx + r + 1}
+            y={cy - r}
+            fontSize={6}
+            fontFamily="IBM Plex Mono"
+            fontWeight={600}
+            fill="var(--map-base-stroke)"
+            textAnchor="start"
+            dominantBaseline="auto"
+          >
+            {agent.carrying}
+          </text>
+        )}
+        {agent.hp < agent.maxHp && (
+          <g>
+            <rect
+              x={cx - r}
+              y={cy + r + 2}
+              width={r * 2}
+              height={2}
+              fill="var(--map-health-bg)"
+              rx={1}
+            />
+            <rect
+              x={cx - r}
+              y={cy + r + 2}
+              width={r * 2 * (agent.hp / agent.maxHp)}
+              height={2}
+              fill={agent.hp / agent.maxHp > 0.5 ? "var(--color-success)" : "var(--color-defender)"}
+              rx={1}
+            />
+          </g>
+        )}
+        <title>
+          {agent.id} [{agent.status}] v{agent.deployedDoctrineVersion}
+          {agent.carrying > 0 ? ` carrying: ${agent.carrying}` : ""}
+          {` memory: ${agent.episodes.length} episodes`}
+        </title>
+      </g>
+    );
+  });
 }
 
 function renderAgentShape(cx: number, cy: number, r: number, status: string, color: string) {
   switch (status) {
     case "moving":
     case "returning":
-      // Triangle
       return (
         <polygon
           points={`${cx},${cy - r} ${cx - r},${cy + r} ${cx + r},${cy + r}`}
@@ -137,7 +337,7 @@ function renderAgentShape(cx: number, cy: number, r: number, status: string, col
         />
       );
     case "gathering":
-      // Diamond
+    case "depositing":
       return (
         <polygon
           points={`${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`}
@@ -146,7 +346,6 @@ function renderAgentShape(cx: number, cy: number, r: number, status: string, col
         />
       );
     case "defending":
-      // Square
       return (
         <rect
           x={cx - r + 1}
@@ -158,7 +357,6 @@ function renderAgentShape(cx: number, cy: number, r: number, status: string, col
         />
       );
     default:
-      // Circle (idle, scouting)
       return <circle cx={cx} cy={cy} r={r} fill={color} opacity={0.9} />;
   }
 }

@@ -4,3 +4,4 @@ dist/
 .env.*
 *.tsbuildinfo
 .vite/
+.claude/settings.local.json
