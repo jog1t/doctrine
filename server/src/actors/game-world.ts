@@ -119,11 +119,13 @@ export function syncCanonicalBaseState(state: MutableWorldState): void {
   const canonicalBase = state.doctrine.basePosition;
   state.basePosition = { ...canonicalBase };
 
-  if (!state.towers) return;
+  state.towers ??= [];
 
   const baseTower = state.towers.find((tower) => tower.id === "tower-0");
   if (baseTower) {
     baseTower.position = { ...canonicalBase };
+  } else {
+    state.towers.push(createInitialTower(canonicalBase));
   }
 }
 
