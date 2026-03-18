@@ -32,6 +32,20 @@
   /* -- Accent -- */
   --color-accent: #b8a472;
   --color-deploy: #6a9761;
+  --color-doctrine-stale: #e8a030;
+
+  /* -- Map -- */
+  --map-tile-empty: #2a2a28;
+  --map-tile-resource: #3d5c38;
+  --map-tile-obstacle: #141412;
+  --map-grid-stroke: #1a1a18;
+  --map-hatch-stroke: #252520;
+  --map-base-stroke: #e8d5b0;
+  --map-tower-fill: #3a3a30;
+  --map-health-bg: #3a3a36;
+  --color-intel: #7ec8e3;
+  --color-gather-highlight: #7aaf70;
+  --color-observe: #9a7ab8;
 
   /* -- Typography -- */
   --font-serif: "IBM Plex Serif", Georgia, serif;
@@ -459,17 +473,17 @@ body {
   color: var(--color-info);
 }
 .action-move-intel .action-icon {
-  color: #7ec8e3;
+  color: var(--color-intel);
 }
 .action-move-intel .action-desc {
-  color: #7ec8e3;
+  color: var(--color-intel);
   font-style: italic;
 }
 .action-gather .action-icon {
   color: var(--color-success);
 }
 .action-gather .action-desc {
-  color: #7aaf70;
+  color: var(--color-gather-highlight);
 }
 .action-deposit .action-icon {
   color: var(--color-warning);
@@ -482,12 +496,12 @@ body {
   color: var(--text-muted);
 }
 .action-observe .action-icon {
-  color: #9a7ab8;
+  color: var(--color-observe);
 }
 
 /* Stale doctrine — agent running old version */
 .action-stale .action-id {
-  color: #e8a030;
+  color: var(--color-doctrine-stale);
 }
 .action-stale .action-desc {
   opacity: 0.6;
@@ -495,10 +509,10 @@ body {
 }
 .action-version {
   font-size: 9px;
-  color: #e8a030;
+  color: var(--color-doctrine-stale);
   letter-spacing: 0.5px;
   padding: 1px 4px;
-  border: 1px solid rgba(232, 160, 48, 0.4);
+  border: 1px solid color-mix(in srgb, var(--color-doctrine-stale) 40%, transparent);
 }
 
 /* -- Agent Memory Panel -- */

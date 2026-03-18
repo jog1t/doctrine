@@ -18,4 +18,9 @@ M2 is implemented and typechecks clean.
 
 **Why:** M2 core loop: agents gain experience, losing a veteran hurts, doctrine propagation has spatial cost.
 
+**Follow-up adjustments before merge:**
+- Gatherer deposit actions now use explicit `depositing` status so UI can distinguish a completed deposit from travel/return movement.
+- `MapView` visual tokens now pull from shared CSS variables, and stacked-agent rendering is extracted into a dedicated `AgentMarkers` component instead of an inline IIFE.
+- `TickDebriefPanel` action-row class assembly now uses `clsx` for clearer stateful styling logic.
+
 **How to apply:** Next milestone is M3 — shared map / basic deception (two-layer map: ground truth vs perceived, scout write channels, basic passive deception via false marker signals).

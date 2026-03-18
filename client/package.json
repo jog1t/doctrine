@@ -12,6 +12,7 @@
   "dependencies": {
     "@doctrine/shared": "workspace:*",
     "@rivetkit/react": "^2.1.6",
+    "clsx": "^2.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

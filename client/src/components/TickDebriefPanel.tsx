@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import clsx from "clsx";
 import type { Agent, AgentAction, Doctrine, EpisodeEventType, TickDebrief } from "@doctrine/shared";
 
 interface TickDebriefPanelProps {
@@ -138,7 +139,10 @@ function ActionRow({
   return (
     <button
       type="button"
-      className={`action-row action-${action.action}${isStale ? " action-stale" : ""}${hasMemory && isExpanded ? " action-row-expanded" : ""}`}
+      className={clsx("action-row", `action-${action.action}`, {
+        "action-stale": isStale,
+        "action-row-expanded": hasMemory && isExpanded,
+      })}
       onClick={hasMemory ? onClick : undefined}
       disabled={!hasMemory}
       aria-expanded={hasMemory ? isExpanded : undefined}

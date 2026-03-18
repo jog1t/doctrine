@@ -580,7 +580,7 @@ export function applyAction(
     case "deposit":
       collected = agent.carrying;
       agent.carrying = 0;
-      agent.status = "returning";
+      agent.status = "depositing";
       pendingEpisodes.push({
         agentId: agent.id,
         record: {

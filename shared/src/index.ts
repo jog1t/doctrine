@@ -66,7 +66,7 @@ export interface MemoryConfig {
 
 export type AgentType = "gatherer" | "scout" | "defender";
 
-export type AgentStatus = "idle" | "moving" | "gathering" | "scouting" | "defending" | "returning";
+export type AgentStatus = "idle" | "moving" | "gathering" | "depositing" | "scouting" | "defending" | "returning";
 
 export interface Agent {
   id: string;
