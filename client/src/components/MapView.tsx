@@ -226,7 +226,6 @@ export function MapView({ map, agents, basePosition, currentTick, threats, threa
 
         {/* Last-known threat sightings */}
         {threatSightings.map((sighting) => {
-          const isVisible = threats.some((threat) => threat.id === sighting.threatId);
           const age = Math.max(0, currentTick - sighting.lastSeenTick);
           const opacity = Math.max(0.2, 0.75 - age * 0.03);
           const cx = sighting.position.x * TILE_SIZE + TILE_SIZE / 2;
@@ -234,7 +233,7 @@ export function MapView({ map, agents, basePosition, currentTick, threats, threa
           const radius = 7 + Math.min(age, 6);
 
           return (
-            <g key={`sighting-${sighting.threatId}`} opacity={isVisible ? 0.22 : opacity}>
+            <g key={`sighting-${sighting.threatId}`} opacity={opacity}>
               <circle
                 cx={cx}
                 cy={cy}

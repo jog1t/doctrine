@@ -582,6 +582,32 @@ describe("defender threat behavior", () => {
     expect(action.action).toBe("guard");
     expect(agent.workingMemory.currentTask).toBeNull();
   });
+
+  it("abandons pursuit when the stored last-known position becomes unreachable", () => {
+    const map = makeMap();
+    placeObstacle(map, 18, 12);
+    placeObstacle(map, 20, 12);
+    placeObstacle(map, 19, 11);
+    placeObstacle(map, 19, 13);
+
+    const agent = makeAgent("defender-0", "defender", { x: 17, y: 12 }, {
+      workingMemory: {
+        currentTask: "investigate:threat-0",
+        taskTarget: { x: 19, y: 12 },
+        taskStartTick: 10,
+      },
+    });
+    const doctrine = makeDoctrine({
+      defender: { ...makeDoctrine().defender, chaseThreats: true, guardRadius: 10, maxInvestigateDistance: 8 },
+    });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeDefenderWithSightings(agent, doctrine, map, 11, [], pending, []);
+
+    expect(action.action).toBe("guard");
+    expect(agent.workingMemory.currentTask).toBeNull();
+    expect(agent.workingMemory.taskTarget).toBeNull();
+  });
 });
 
 // ============================================================

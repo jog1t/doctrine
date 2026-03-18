@@ -649,6 +649,7 @@ function executeDefender(
       if (
         !hasFreshMatchingSighting &&
         pursuitStillFresh &&
+        isReachable(agent.position, agent.workingMemory.taskTarget, map) &&
         distance(agent.position, agent.workingMemory.taskTarget) > 1
       ) {
         const next = stepToward(agent.position, agent.workingMemory.taskTarget, map);
@@ -662,6 +663,10 @@ function executeDefender(
           to: next,
           doctrineVersion: doctrine.version,
         };
+      }
+
+      if (!hasFreshMatchingSighting && !isReachable(agent.position, agent.workingMemory.taskTarget, map)) {
+        clearPursuitMemory();
       }
     }
 
