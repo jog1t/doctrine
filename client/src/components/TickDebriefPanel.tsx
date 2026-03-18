@@ -88,7 +88,7 @@ export function TickDebriefPanel({ debrief, agents, doctrine, previousDoctrine }
       {debrief.notices && debrief.notices.length > 0 && (
         <div className="debrief-notices">
           {debrief.notices.map((notice, i) => (
-            <div key={i} className={`debrief-notice ${notice.startsWith("FALLEN") ? "debrief-notice-fallen" : ""}`}>
+            <div key={`${i}-${notice}`} className={`debrief-notice ${notice.startsWith("FALLEN") ? "debrief-notice-fallen" : ""}`}>
               ! {notice}
             </div>
           ))}
@@ -205,7 +205,7 @@ function AgentMemoryPanel({ agent, maxEpisodes, currentTick }: { agent: Agent; m
         <div className="memory-episodes">
           <div className="memory-section-label">EPISODES</div>
           {recentEpisodes.map((ep, i) => (
-            <div key={i} className="memory-episode">
+            <div key={`${ep.tick}-${ep.eventType}-${i}`} className="memory-episode">
               <span className="memory-episode-icon" style={{ color: EVENT_COLORS[ep.eventType] }}>
                 {EVENT_ICONS[ep.eventType]}
               </span>

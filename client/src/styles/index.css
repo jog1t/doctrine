@@ -413,6 +413,14 @@ body {
   background: var(--bg-secondary);
 }
 
+.action-row:disabled {
+  cursor: default;
+}
+
+.action-row:disabled:hover {
+  background: none;
+}
+
 .action-icon {
   font-weight: 600;
   width: 12px;
