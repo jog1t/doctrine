@@ -439,7 +439,7 @@ function runTick(
 
 // --- Helpers ---
 
-/** Returns the doctrine version the agent was last updated to, falling back to current. */
+/** Resolves and returns the doctrine config for the agent based on its deployedDoctrineVersion, falling back to the current doctrine. */
 function resolveDoctrineForAgent(
   agent: Agent,
   current: Doctrine,
