@@ -41,6 +41,27 @@ describe("gatherer working memory", () => {
     expect(action.reason).toContain("working memory");
   });
 
+  it("routes around obstacle walls instead of getting stuck on a committed resource", () => {
+    const map = makeMap();
+    placeResource(map, 3, 12, 5);
+    placeObstacle(map, 15, 12);
+    placeObstacle(map, 15, 11);
+    placeObstacle(map, 15, 13);
+
+    const agent = makeAgent("gatherer-0", "gatherer", { x: 16, y: 12 }, {
+      workingMemory: { currentTask: "gather", taskTarget: { x: 3, y: 12 }, taskStartTick: 1 },
+    });
+    const doctrine = makeDoctrine();
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeAgent(agent, doctrine, map, 2, [], [], [], pending);
+
+    expect(action.action).toBe("move");
+    expect(action.to).not.toBeNull();
+    expect(action.to).not.toMatchObject({ x: 16, y: 12 });
+    expect(action.to).not.toMatchObject({ x: 15, y: 12 });
+  });
+
   it("clears working memory and records episode when target is depleted", () => {
     const map = makeMap();
     // Resource at (5,12) starts depleted

@@ -20,34 +20,63 @@ function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
 }
 
-/** Move one step toward target, trying both axes and sidestepping if blocked. */
+/** Move one step toward target, using a shortest passable path when needed. */
 function stepToward(from: Position, to: Position, map?: GameMap): Position {
+  if (from.x === to.x && from.y === to.y) return from;
   const dx = Math.sign(to.x - from.x);
   const dy = Math.sign(to.y - from.y);
 
-  // Primary: prefer axis with larger distance
-  const primary: Position =
+  if (!map) {
+    return Math.abs(to.x - from.x) >= Math.abs(to.y - from.y)
+      ? { x: from.x + dx, y: from.y }
+      : { x: from.x, y: from.y + dy };
+  }
+
+  const directStep =
     Math.abs(to.x - from.x) >= Math.abs(to.y - from.y)
       ? { x: from.x + dx, y: from.y }
       : { x: from.x, y: from.y + dy };
 
-  if (!map || isPassable(map, primary)) return primary;
+  if (isPassable(map, directStep)) return directStep;
 
-  // Secondary: try the other axis
-  const secondary: Position =
-    Math.abs(to.x - from.x) >= Math.abs(to.y - from.y)
-      ? { x: from.x, y: from.y + dy }
-      : { x: from.x + dx, y: from.y };
+  const queue: Position[] = [from];
+  const visited = new Set<string>([`${from.x},${from.y}`]);
+  const previous = new Map<string, Position>();
 
-  if (isPassable(map, secondary)) return secondary;
+  while (queue.length > 0) {
+    const current = queue.shift()!;
 
-  // Sidestep perpendicular to try to get around the obstacle
-  if (dx !== 0 && isPassable(map, { x: from.x, y: from.y + 1 })) return { x: from.x, y: from.y + 1 };
-  if (dx !== 0 && isPassable(map, { x: from.x, y: from.y - 1 })) return { x: from.x, y: from.y - 1 };
-  if (dy !== 0 && isPassable(map, { x: from.x + 1, y: from.y })) return { x: from.x + 1, y: from.y };
-  if (dy !== 0 && isPassable(map, { x: from.x - 1, y: from.y })) return { x: from.x - 1, y: from.y };
+    if (current.x === to.x && current.y === to.y) {
+      let step = current;
+      let parent = previous.get(`${step.x},${step.y}`);
 
-  return from; // truly stuck
+      while (parent && (parent.x !== from.x || parent.y !== from.y)) {
+        step = parent;
+        parent = previous.get(`${step.x},${step.y}`);
+      }
+
+      return step;
+    }
+
+    const neighbors: Position[] = [
+      { x: current.x + 1, y: current.y },
+      { x: current.x - 1, y: current.y },
+      { x: current.x, y: current.y + 1 },
+      { x: current.x, y: current.y - 1 },
+    ];
+
+    neighbors.sort((a, b) => distance(a, to) - distance(b, to));
+
+    for (const neighbor of neighbors) {
+      const key = `${neighbor.x},${neighbor.y}`;
+      if (visited.has(key) || !isPassable(map, neighbor)) continue;
+      visited.add(key);
+      previous.set(key, current);
+      queue.push(neighbor);
+    }
+  }
+
+  return from;
 }
 
 function isPassable(map: GameMap, pos: Position): boolean {
