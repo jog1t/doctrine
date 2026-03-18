@@ -435,12 +435,12 @@ function executeDefender(
     }
 
     if (cfg.chaseThreats && threatDist <= cfg.maxChaseDistance) {
-      // Commit to chasing via working memory; reset start tick if switching to a new target
-      const sameTarget =
-        agent.workingMemory.currentTask === "chase" &&
-        agent.workingMemory.taskTarget?.x === visibleThreat.position.x &&
-        agent.workingMemory.taskTarget?.y === visibleThreat.position.y;
-      agent.workingMemory.currentTask = "chase";
+      // Commit to chasing via working memory; reset start tick only when switching to a different
+      // threat. Compare by threat ID (not position) — threats move each tick so position-based
+      // comparison would always fail, resetting taskStartTick on every tick.
+      const chaseTask = `chase:${visibleThreat.id}`;
+      const sameTarget = agent.workingMemory.currentTask === chaseTask;
+      agent.workingMemory.currentTask = chaseTask;
       agent.workingMemory.taskTarget = visibleThreat.position;
       if (!sameTarget) agent.workingMemory.taskStartTick = tick;
 
@@ -455,7 +455,7 @@ function executeDefender(
         doctrineVersion: doctrine.version,
       };
     }
-  } else if (agent.workingMemory.currentTask === "chase") {
+  } else if (agent.workingMemory.currentTask?.startsWith("chase:")) {
     // Lost sight of threat — clear working memory
     agent.workingMemory.currentTask = null;
     agent.workingMemory.taskTarget = null;

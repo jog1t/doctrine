@@ -319,7 +319,7 @@ describe("defender threat behavior", () => {
 
     executeAgent(agent, doctrine, map, 1, [], [], [threat], pending);
 
-    expect(agent.workingMemory.currentTask).toBe("chase");
+    expect(agent.workingMemory.currentTask).toBe("chase:threat-0");
     expect(agent.workingMemory.taskTarget).toMatchObject({ x: 18, y: 12 });
   });
 

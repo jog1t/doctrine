@@ -171,6 +171,17 @@ export const gameWorld = actor({
     },
 
     deployDoctrine: (c, doctrine: Doctrine) => {
+      // Migrate persisted state that may predate M2 fields — identical to executeTick,
+      // but needed here because deployDoctrine can be called before any tick runs.
+      c.state.doctrineHistory ??= [];
+      c.state.towers ??= [createInitialTower(c.state.basePosition)];
+      c.state.nextThreatId ??= 0;
+      for (const agent of c.state.agents) {
+        agent.workingMemory ??= { currentTask: null, taskTarget: null, taskStartTick: null };
+        agent.episodes ??= [];
+        agent.deployedDoctrineVersion ??= c.state.doctrine.version;
+      }
+
       // Save normalized current doctrine to history before replacing it.
       // Normalization ensures persisted state missing new fields won't crash applyMemoryUpdates.
       c.state.doctrineHistory.push({
