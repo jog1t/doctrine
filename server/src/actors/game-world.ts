@@ -386,7 +386,6 @@ export const gameWorld = actor({
       for (const sighting of newThreatSightings) {
         c.state.threatSightings = upsertThreatSighting(c.state.threatSightings, sighting);
       }
-
       const cleanedIntel = cleanupWorldIntel({
         map: c.state.map,
         knownResources: c.state.knownResources,
