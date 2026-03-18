@@ -267,7 +267,7 @@ describe("defender threat behavior", () => {
         tick: 1,
         eventType: "threat-spotted",
         position: { x: 18, y: 12 },
-        detail: "...",
+        detail: "Spotted threat threat-0 at distance 2",
       }],
     });
     const doctrine = makeDoctrine({ defender: { ...makeDoctrine().defender, chaseThreats: true } });

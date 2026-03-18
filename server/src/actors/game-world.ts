@@ -248,6 +248,14 @@ export const gameWorld = actor({
         agent.episodes ??= [];
         agent.deployedDoctrineVersion ??= c.state.doctrine.version;
       }
+      // Normalize pre-M2 debrief entries — old snapshots lack `notices` and
+      // per-action `doctrineVersion`, which breaks UI rendering.
+      for (const debrief of c.state.debriefs) {
+        debrief.notices ??= [];
+        for (const action of debrief.actions) {
+          action.doctrineVersion ??= c.state.doctrine.version;
+        }
+      }
 
       c.state.tick += 1;
       c.state.phase = "running";
