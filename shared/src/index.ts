@@ -211,6 +211,10 @@ export type GamePhase = "setup" | "running" | "paused";
 export interface GameState {
   phase: GamePhase;
   tick: number;
+  /** Whether the server actor is currently scheduling automatic ticks. */
+  autoTick: boolean;
+  /** Current server-side auto-tick interval in milliseconds. */
+  tickIntervalMs: number;
   map: GameMap;
   agents: Agent[];
   doctrine: Doctrine;

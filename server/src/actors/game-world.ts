@@ -134,7 +134,38 @@ export type GameWorldRuntimeState = {
   threatSightings: ThreatSighting[];
   towers: Tower[];
   nextThreatId: number;
+  autoTickGeneration: number;
 };
+
+export function normalizeAutoTickGeneration(
+  state: Pick<GameWorldRuntimeState, "autoTickGeneration">,
+): void {
+  if (!Number.isFinite(state.autoTickGeneration)) {
+    state.autoTickGeneration = 0;
+  }
+}
+
+function scheduleNextAutoTick(
+  c: {
+    state: Pick<
+      GameWorldRuntimeState,
+      "autoTick" | "tickIntervalMs" | "autoTickGeneration"
+    >;
+    schedule: { after: (duration: number, actionName: string, ...args: unknown[]) => void };
+  },
+): void {
+  if (!c.state.autoTick) return;
+  normalizeAutoTickGeneration(c.state);
+  c.schedule.after(c.state.tickIntervalMs, "runScheduledTick", c.state.autoTickGeneration);
+}
+
+export function advanceAutoTickGeneration(
+  state: Pick<GameWorldRuntimeState, "autoTickGeneration">,
+): number {
+  normalizeAutoTickGeneration(state);
+  state.autoTickGeneration += 1;
+  return state.autoTickGeneration;
+}
 
 export function syncCanonicalBaseState(state: MutableWorldState): void {
   const canonicalBase = state.doctrine.basePosition;
@@ -228,6 +259,7 @@ export const gameWorld = actor({
     threatSightings: [] as ThreatSighting[],
     towers: [] as Tower[],
     nextThreatId: 0,
+    autoTickGeneration: 0,
   },
 
   actions: {
@@ -246,6 +278,7 @@ export const gameWorld = actor({
       c.state.debriefs = [];
       c.state.seed = gameSeed;
       c.state.autoTick = false;
+      advanceAutoTickGeneration(c.state);
       c.state.knownResources = [];
       c.state.threats = [];
       c.state.threatSightings = [];
@@ -322,133 +355,47 @@ export const gameWorld = actor({
     },
 
     executeTick: (c) => {
-      if (!c.state.map) {
-        throw new Error("Game not initialized");
+      return executeWorldTick(c);
+    },
+
+    runScheduledTick: (c, generation: number) => {
+      normalizeAutoTickGeneration(c.state);
+
+      if (!c.state.autoTick) {
+        return { skipped: true, reason: "auto-tick-disabled" };
       }
 
-      // Migrate persisted doctrine that may predate newer fields
-      c.state.doctrine = normalizeDoctrine(c.state.doctrine);
-      // Canonical basePosition lives on the doctrine; old persisted state can have a stale
-      // duplicated basePosition and base-tower position from before the canonical-base fix.
-      syncCanonicalBaseState(c.state);
-
-      // Migrate persisted game state that may predate M2 fields
-      c.state.threats ??= [];
-      c.state.towers ??= [createInitialTower(c.state.basePosition)];
-      c.state.doctrineHistory ??= [];
-      c.state.nextThreatId ??= 0;
-      c.state.threatSightings ??= [];
-      for (const agent of c.state.agents) {
-        agent.workingMemory ??= { currentTask: null, taskTarget: null, taskStartTick: null };
-        agent.episodes ??= [];
-        agent.deployedDoctrineVersion ??= c.state.doctrine.version;
-      }
-      // Advance any agent whose version was evicted from history on a previous deploy.
-      advanceEvictedAgentVersions(c.state.agents, c.state.doctrine.version, c.state.doctrineHistory);
-      // Normalize pre-M2 debrief entries — old snapshots lack `notices` and
-      // per-action `doctrineVersion`, which breaks UI rendering.
-      for (const debrief of c.state.debriefs) {
-        debrief.notices ??= [];
-        for (const action of debrief.actions) {
-          action.doctrineVersion ??= c.state.doctrine.version;
-        }
+      if (generation !== c.state.autoTickGeneration) {
+        return { skipped: true, reason: "stale-generation" };
       }
 
-      c.state.tick += 1;
-      c.state.phase = "running";
+      const result = executeWorldTick(c);
 
-      // Spawn new threat periodically
-      if (
-        c.state.tick % THREAT_SPAWN_INTERVAL === 0 &&
-        c.state.threats.length < MAX_THREATS
-      ) {
-        const threatId = `threat-${c.state.nextThreatId++}`;
-        c.state.threats.push(spawnThreat(threatId, c.state.map, c.state.seed));
+      if (c.state.autoTick && generation === c.state.autoTickGeneration) {
+        scheduleNextAutoTick(c);
       }
 
-      const { debrief, newKnownResources, newThreatSightings, killedAgentIds } = runTick(
-        c.state.tick,
-        c.state.agents,
-        c.state.doctrine,
-        c.state.doctrineHistory,
-        c.state.map,
-        c.state.knownResources,
-        c.state.threatSightings,
-        c.state.threats,
-      );
-
-      // Merge scout discoveries
-      for (const pos of newKnownResources) {
-        const already = c.state.knownResources.some((k) => k.x === pos.x && k.y === pos.y);
-        if (!already) c.state.knownResources.push(pos);
-      }
-
-      for (const sighting of newThreatSightings) {
-        c.state.threatSightings = upsertThreatSighting(c.state.threatSightings, sighting);
-      }
-      const cleanedIntel = cleanupWorldIntel({
-        map: c.state.map,
-        knownResources: c.state.knownResources,
-        threats: c.state.threats,
-        threatSightings: c.state.threatSightings,
-        tick: c.state.tick,
-      });
-      c.state.knownResources = cleanedIntel.knownResources;
-      c.state.threatSightings = cleanedIntel.threatSightings;
-
-      // Hard death: remove killed agents (episodic memory is gone with them)
-      if (killedAgentIds.length > 0) {
-        const killedSet = new Set(killedAgentIds);
-        c.state.agents = c.state.agents.filter((a) => !killedSet.has(a.id));
-        debrief.notices.push(
-          ...killedAgentIds.map((id) => `FALLEN: ${id} was destroyed — all episodic memory lost`),
-        );
-      }
-
-      c.state.totalResourcesCollected += debrief.resourcesCollected;
-      debrief.totalResources = c.state.totalResourcesCollected;
-
-      // Tower broadcast: each tick update agents within tower range to current doctrine
-      const currentVersion = c.state.doctrine.version;
-      for (const agent of c.state.agents) {
-        if (agent.deployedDoctrineVersion < currentVersion) {
-          for (const tower of c.state.towers) {
-            if (euclideanDist(agent.position, tower.position) <= tower.broadcastRadius) {
-              agent.deployedDoctrineVersion = currentVersion;
-              debrief.notices.push(
-                `SYNC: ${agent.id} received doctrine v${currentVersion} from tower at (${tower.position.x}, ${tower.position.y})`,
-              );
-              break;
-            }
-          }
-        }
-      }
-
-      // Keep last 50 debriefs
-      c.state.debriefs.push(debrief);
-      if (c.state.debriefs.length > 50) {
-        c.state.debriefs = c.state.debriefs.slice(-50);
-      }
-
-      c.broadcast("tickCompleted", {
-        state: getPublicState(c.state),
-        debrief,
-      });
-
-      return { state: getPublicState(c.state), debrief };
+      return result;
     },
 
     startAutoTick: (c) => {
-      if (!c.state.map) throw new Error("Game not initialized");
+      if (!c.state.map) {
+        throw new Error("Game not initialized");
+      }
+      normalizeAutoTickGeneration(c.state);
       c.state.autoTick = true;
       c.state.phase = "running";
+      advanceAutoTickGeneration(c.state);
+      scheduleNextAutoTick(c);
       c.broadcast("autoTickChanged", { autoTick: true });
       return { autoTick: true };
     },
 
     stopAutoTick: (c) => {
+      normalizeAutoTickGeneration(c.state);
       c.state.autoTick = false;
       c.state.phase = "paused";
+      advanceAutoTickGeneration(c.state);
       c.broadcast("autoTickChanged", { autoTick: false });
       return { autoTick: false };
     },
@@ -463,12 +410,126 @@ export const gameWorld = actor({
     },
 
     setTickInterval: (c, ms: number) => {
+      normalizeAutoTickGeneration(c.state);
       c.state.tickIntervalMs = Math.max(100, Math.min(5000, ms));
+      if (c.state.autoTick) {
+        advanceAutoTickGeneration(c.state);
+        scheduleNextAutoTick(c);
+      }
       c.broadcast("tickIntervalChanged", { tickIntervalMs: c.state.tickIntervalMs });
       return { tickIntervalMs: c.state.tickIntervalMs };
     },
   },
 });
+
+function executeWorldTick(c: {
+  state: GameWorldRuntimeState;
+  broadcast: (name: string, payload: unknown) => void;
+}): { state: GameState; debrief: TickDebrief } {
+  if (!c.state.map) {
+    throw new Error("Game not initialized");
+  }
+
+  c.state.doctrine = normalizeDoctrine(c.state.doctrine);
+  syncCanonicalBaseState(c.state);
+
+  c.state.threats ??= [];
+  c.state.towers ??= [createInitialTower(c.state.basePosition)];
+  c.state.doctrineHistory ??= [];
+  c.state.nextThreatId ??= 0;
+  c.state.threatSightings ??= [];
+  for (const agent of c.state.agents) {
+    agent.workingMemory ??= { currentTask: null, taskTarget: null, taskStartTick: null };
+    agent.episodes ??= [];
+    agent.deployedDoctrineVersion ??= c.state.doctrine.version;
+  }
+  advanceEvictedAgentVersions(c.state.agents, c.state.doctrine.version, c.state.doctrineHistory);
+  for (const debrief of c.state.debriefs) {
+    debrief.notices ??= [];
+    for (const action of debrief.actions) {
+      action.doctrineVersion ??= c.state.doctrine.version;
+    }
+  }
+
+  c.state.tick += 1;
+  c.state.phase = "running";
+
+  if (
+    c.state.tick % THREAT_SPAWN_INTERVAL === 0 &&
+    c.state.threats.length < MAX_THREATS
+  ) {
+    const threatId = `threat-${c.state.nextThreatId++}`;
+    c.state.threats.push(spawnThreat(threatId, c.state.map, c.state.seed));
+  }
+
+  const { debrief, newKnownResources, newThreatSightings, killedAgentIds } = runTick(
+    c.state.tick,
+    c.state.agents,
+    c.state.doctrine,
+    c.state.doctrineHistory,
+    c.state.map,
+    c.state.knownResources,
+    c.state.threatSightings,
+    c.state.threats,
+  );
+
+  for (const pos of newKnownResources) {
+    const already = c.state.knownResources.some((k) => k.x === pos.x && k.y === pos.y);
+    if (!already) c.state.knownResources.push(pos);
+  }
+
+  for (const sighting of newThreatSightings) {
+    c.state.threatSightings = upsertThreatSighting(c.state.threatSightings, sighting);
+  }
+  const cleanedIntel = cleanupWorldIntel({
+    map: c.state.map,
+    knownResources: c.state.knownResources,
+    threats: c.state.threats,
+    threatSightings: c.state.threatSightings,
+    tick: c.state.tick,
+  });
+  c.state.knownResources = cleanedIntel.knownResources;
+  c.state.threatSightings = cleanedIntel.threatSightings;
+
+  if (killedAgentIds.length > 0) {
+    const killedSet = new Set(killedAgentIds);
+    c.state.agents = c.state.agents.filter((a) => !killedSet.has(a.id));
+    debrief.notices.push(
+      ...killedAgentIds.map((id) => `FALLEN: ${id} was destroyed — all episodic memory lost`),
+    );
+  }
+
+  c.state.totalResourcesCollected += debrief.resourcesCollected;
+  debrief.totalResources = c.state.totalResourcesCollected;
+
+  const currentVersion = c.state.doctrine.version;
+  for (const agent of c.state.agents) {
+    if (agent.deployedDoctrineVersion < currentVersion) {
+      for (const tower of c.state.towers) {
+        if (euclideanDist(agent.position, tower.position) <= tower.broadcastRadius) {
+          agent.deployedDoctrineVersion = currentVersion;
+          debrief.notices.push(
+            `SYNC: ${agent.id} received doctrine v${currentVersion} from tower at (${tower.position.x}, ${tower.position.y})`,
+          );
+          break;
+        }
+      }
+    }
+  }
+
+  c.state.debriefs.push(debrief);
+  if (c.state.debriefs.length > 50) {
+    c.state.debriefs = c.state.debriefs.slice(-50);
+  }
+
+  const publicState = getPublicState(c.state);
+  c.broadcast("tickCompleted", {
+    state: publicState,
+    debrief,
+  });
+
+  return { state: publicState, debrief };
+}
 
 // --- Tick execution ---
 
@@ -614,6 +675,8 @@ export function normalizeDoctrine(doctrine: Doctrine): Doctrine {
 export function getPublicState(state: {
   phase: GamePhase;
   tick: number;
+  autoTick: boolean;
+  tickIntervalMs: number;
   map: GameMap | null;
   agents: Agent[];
   doctrine: Doctrine;
@@ -631,6 +694,8 @@ export function getPublicState(state: {
   return {
     phase: state.phase,
     tick: state.tick,
+    autoTick: state.autoTick,
+    tickIntervalMs: state.tickIntervalMs,
     map: state.map!,
     agents: state.agents,
     doctrine: normalizeDoctrine(state.doctrine),

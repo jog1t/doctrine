@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import type { GameState, TickDebrief, Doctrine } from "@doctrine/shared";
 import { useActor } from "./rivet.js";
 import { MapView } from "./components/MapView.js";
@@ -12,8 +12,8 @@ export function App() {
   const [latestDebrief, setLatestDebrief] = useState<TickDebrief | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [autoTicking, setAutoTicking] = useState(false);
-  const autoTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [tickSpeed, setTickSpeed] = useState(1000);
+  const [tickSpeedUpdating, setTickSpeedUpdating] = useState(false);
 
   const world = useActor({ name: "gameWorld", key: ["default"] });
 
@@ -21,15 +21,26 @@ export function App() {
   world.useEvent("gameInitialized", (state: GameState) => {
     setGameState(state);
     setLatestDebrief(null);
+    setAutoTicking(state.autoTick);
+    setTickSpeed(state.tickIntervalMs);
   });
 
   world.useEvent("tickCompleted", (data: { state: GameState; debrief: TickDebrief }) => {
     setGameState(data.state);
     setLatestDebrief(data.debrief);
+    setAutoTicking(data.state.autoTick);
   });
 
   world.useEvent("doctrineDeployed", (state: GameState) => {
     setGameState(state);
+  });
+
+  world.useEvent("autoTickChanged", (data: { autoTick: boolean }) => {
+    setAutoTicking(data.autoTick);
+  });
+
+  world.useEvent("tickIntervalChanged", (data: { tickIntervalMs: number }) => {
+    setTickSpeed(data.tickIntervalMs);
   });
 
   // Initialize game on first connection
@@ -39,22 +50,12 @@ export function App() {
         .initGame()
         .then((state: GameState) => {
           setGameState(state);
+          setAutoTicking(state.autoTick);
+          setTickSpeed(state.tickIntervalMs);
         })
         .catch((err: Error) => setError(err.message));
     }
   }, [world.connection, gameState]);
-
-  // Auto-tick loop (client-driven for simplicity in M1)
-  useEffect(() => {
-    if (autoTicking && world.connection) {
-      autoTickRef.current = setInterval(() => {
-        world.connection?.executeTick().catch(() => {});
-      }, tickSpeed);
-    }
-    return () => {
-      if (autoTickRef.current) clearInterval(autoTickRef.current);
-    };
-  }, [autoTicking, tickSpeed, world.connection]);
 
   const handleTick = useCallback(async () => {
     if (!world.connection) return;
@@ -81,26 +82,56 @@ export function App() {
 
   const handleReset = useCallback(async () => {
     if (!world.connection) return;
-    setAutoTicking(false);
     try {
       const state = await world.connection.initGame();
       setGameState(state);
       setLatestDebrief(null);
+      setAutoTicking(state.autoTick);
+      setTickSpeed(state.tickIntervalMs);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Reset failed");
     }
   }, [world.connection]);
 
-  const handleToggleAutoTick = useCallback(() => {
-    setAutoTicking((prev) => !prev);
-  }, []);
+  const handleToggleAutoTick = useCallback(async () => {
+    if (!world.connection) return;
+    try {
+      if (autoTicking) {
+        const result = await world.connection.stopAutoTick();
+        setAutoTicking(result.autoTick);
+      } else {
+        const result = await world.connection.startAutoTick();
+        setAutoTicking(result.autoTick);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Auto-tick toggle failed");
+    }
+  }, [autoTicking, world.connection]);
+
+  const handleTickSpeedChange = useCallback(
+    async (ms: number) => {
+      if (!world.connection) return;
+      if (tickSpeedUpdating) return;
+
+      setTickSpeedUpdating(true);
+      try {
+        const result = await world.connection.setTickInterval(ms);
+        setTickSpeed(result.tickIntervalMs);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Tick speed update failed");
+      } finally {
+        setTickSpeedUpdating(false);
+      }
+    },
+    [tickSpeedUpdating, world.connection],
+  );
 
   if (error) {
     return (
       <div className="app-error">
         <h2>Error</h2>
         <p>{error}</p>
-        <button onClick={() => setError(null)}>Dismiss</button>
+        <button type="button" onClick={() => setError(null)}>Dismiss</button>
       </div>
     );
   }
@@ -141,7 +172,8 @@ export function App() {
             onToggleAutoTick={handleToggleAutoTick}
             autoTicking={autoTicking}
             tickSpeed={tickSpeed}
-            onTickSpeedChange={setTickSpeed}
+            tickSpeedUpdating={tickSpeedUpdating}
+            onTickSpeedChange={handleTickSpeedChange}
           />
         </div>
         <div className="app-sidebar">

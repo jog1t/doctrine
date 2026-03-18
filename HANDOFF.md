@@ -33,7 +33,7 @@ If code and docs disagree, trust:
 ### What is actually implemented
 
 - One `gameWorld` actor owns all game state.
-- The client initializes the world and drives auto-tick with a local `setInterval`.
+- The client initializes the world, but the `gameWorld` actor now owns auto-tick scheduling.
 - Agents have working memory and episodic memory.
 - Doctrine is versioned per deploy.
 - Agents carry `deployedDoctrineVersion` and may run stale doctrine until they enter tower range.
@@ -62,7 +62,7 @@ If code and docs disagree, trust:
 - `server/src/actors/game-world.ts` - actor state, deploy flow, tick execution, doctrine history, tower sync
 - `server/src/engine/agent-logic.ts` - deterministic decisions, working memory, episodic memory, threat movement and damage
 - `server/src/__tests__/agent-logic.test.ts` - behavior coverage for M2 mechanics
-- `client/src/App.tsx` - connection setup and client-driven auto-tick
+- `client/src/App.tsx` - connection setup and tick control UI wired to actor actions
 - `client/src/components/MapView.tsx` - map, towers, threats, stale markers, memory rings
 - `client/src/components/TickDebriefPanel.tsx` - notices, stale version UI, inline memory panel
 - `client/src/components/DoctrineEditor.tsx` - JSON editing and light validation only
@@ -147,11 +147,13 @@ Do not implement against speculative schema unless `shared/src/index.ts` is upda
 
 ## Important Caveats
 
-### Ticking is still client-driven
+### Ticking is server-scheduled inside the single world actor
 
-- `client/src/App.tsx` starts auto-tick with `setInterval`.
-- The actor exposes `startAutoTick`, `stopAutoTick`, and `setTickInterval`, but the UI does not use them.
-- This means the current runtime is not yet the server-authoritative simulation described in later design notes.
+- `client/src/App.tsx` no longer owns a browser `setInterval` for auto-tick.
+- `server/src/actors/game-world.ts` schedules the next tick only after the current tick finishes.
+- Scheduled ticks carry a generation token so stale callbacks from an older start/stop/interval change are ignored.
+- This avoids overlap inside the current single-actor architecture: tick N+1 is not scheduled until tick N completes.
+- This is not yet a multiplayer barrier system. If gameplay is later split across multiple actors or players, a coordinator/ack protocol will still be required so tick N+1 does not begin before every participant has finished tick N.
 
 ### Validation is weaker than the schema suggests
 
@@ -204,10 +206,11 @@ Highest-value next milestone:
 
 ### Infrastructure cleanup that should happen soon
 
-- move ticking from client-driven interval to server-driven scheduling
+- validate the new server-driven tick scheduling under longer play sessions
 - align repo docs with current code reality
 - strengthen doctrine validation on deploy
 - decide how much doctrine history the client should receive
+- design an explicit multiplayer tick barrier/coordinator before actor decomposition
 
 ### Defer until after M2.5a unless required
 

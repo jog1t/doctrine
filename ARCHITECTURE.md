@@ -37,7 +37,7 @@ doctrine/
 │   │   ├── GameControls.tsx       # Tick/start/stop/reset controls
 │   │   └── Header.tsx             # Top status UI
 │   ├── rivet.ts                   # RivetKit React client setup
-│   └── App.tsx                    # Client event wiring and local auto-tick
+│   └── App.tsx                    # Client event wiring and actor tick controls
 ├── HANDOFF.md                     # Current-state engineering handoff
 ├── CLAUDE.md                      # Development guardrails
 └── .agents/skills/                # Local skills/reference material
@@ -74,15 +74,18 @@ Important consequences:
 - replay remains possible later
 - memory and versioning can evolve without moving logic to the client
 
-### 4. Client is a UI, but ticking is not yet server-owned
+### 4. Client is a UI and the single world actor owns auto-tick
 
-The intended architecture is actor-owned simulation, but current runtime control is transitional:
+Current runtime control now follows the intended single-actor model more closely:
 
-- single ticks are triggered from the client via `executeTick()`
-- auto-tick is currently a client `setInterval` in `client/src/App.tsx`
-- the actor already contains server-side tick-control actions, but the UI does not use them
+- single ticks can still be triggered from the client via `executeTick()` for debugging
+- auto-tick is scheduled inside `server/src/actors/game-world.ts`
+- the actor schedules only one future tick at a time, and only after the current tick finishes
+- start/stop/interval changes advance a generation token so stale scheduled callbacks are ignored
 
-This is an explicit architecture gap, not a desired final state.
+This gives correct lockstep behavior for the current single-actor prototype.
+
+Important limit: this is not a multiplayer synchronization system. If gameplay is later split across multiple actors or multiple players with independent simulation responsibilities, the project will need a coordinator/barrier protocol so tick N+1 cannot begin until all required participants have completed tick N.
 
 ### 5. Doctrine is versioned per deploy
 
@@ -115,7 +118,7 @@ Player edits doctrine JSON
   -> in-range agents sync immediately via tower radius
   -> broadcast("doctrineDeployed")
 
-Player clicks TICK or client auto-tick fires
+Player clicks TICK
   -> executeTick() RPC
   -> server runs deterministic decision phase for all agents
   -> actions mutate state
@@ -123,6 +126,19 @@ Player clicks TICK or client auto-tick fires
   -> episodic memory updates apply
   -> debrief generated
   -> broadcast("tickCompleted")
+  -> client re-renders map + debrief
+
+Player clicks START
+  -> startAutoTick() RPC
+  -> actor schedules one future runScheduledTick(generation)
+  -> scheduled tick executes only if auto-tick is still enabled and generation matches
+  -> server runs deterministic decision phase for all agents
+  -> actions mutate state
+  -> threats move and deal damage
+  -> episodic memory updates apply
+  -> debrief generated
+  -> broadcast("tickCompleted")
+  -> actor schedules the next tick only after the current tick completes
   -> client re-renders map + debrief
 ```
 
@@ -152,7 +168,7 @@ Agents can die permanently, and their episodic memory is lost with them.
 
 These are important because future work should not accidentally assume they are solved:
 
-1. Auto-tick is still client-driven rather than server-authoritative.
+1. Auto-tick is server-owned for the single `gameWorld` actor, but multiplayer tick coordination does not exist yet.
 2. Doctrine validation is still lenient in practice despite the presence of `DOCTRINE_SCHEMA`.
 3. Client doctrine-history visibility is incomplete for agents more than one version behind.
 4. Threat combat is one-sided.
@@ -163,10 +179,11 @@ These are important because future work should not accidentally assume they are 
 
 The most valuable next architectural steps are:
 
-1. Move tick ownership fully to the server.
+1. Validate server-owned auto-tick under longer-running sessions.
 2. Add recovery spawning so hard death does not end sessions permanently.
 3. Tighten doctrine validation at deploy boundaries.
 4. Update client/server stale-doctrine representation so UI remains correct as version history grows.
+5. Define a multiplayer tick coordinator/barrier before splitting gameplay across actors.
 
 ## Reference Docs
 
