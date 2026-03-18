@@ -1091,4 +1091,17 @@ describe("syncCanonicalBaseState", () => {
     });
     expect(state.towers.find((tower) => tower.id === "tower-1")?.position).toMatchObject({ x: 20, y: 20 });
   });
+
+  it("realigns a freshly reinitialized world state before public state is emitted", () => {
+    const state = {
+      doctrine: makeDoctrine({ basePosition: { x: 16, y: 12 } }),
+      basePosition: { x: 5, y: 5 },
+      towers: [{ id: "tower-0", position: { x: 16, y: 12 }, broadcastRadius: 8 }],
+    };
+
+    syncCanonicalBaseState(state);
+
+    expect(state.basePosition).toMatchObject({ x: 16, y: 12 });
+    expect(state.towers[0].position).toMatchObject({ x: 16, y: 12 });
+  });
 });

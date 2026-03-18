@@ -173,6 +173,7 @@ export const gameWorld = actor({
       c.state.towers = [createInitialTower(base)];
       c.state.nextThreatId = 0;
       c.state.doctrineHistory = [];
+      syncCanonicalBaseState(c.state);
 
       c.broadcast("gameInitialized", getPublicState(c.state));
       return getPublicState(c.state);
