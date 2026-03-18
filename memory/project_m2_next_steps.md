@@ -22,5 +22,13 @@ M2 is implemented and typechecks clean.
 - Gatherer deposit actions now use explicit `depositing` status so UI can distinguish a completed deposit from travel/return movement.
 - `MapView` visual tokens now pull from shared CSS variables, and stacked-agent rendering is extracted into a dedicated `AgentMarkers` component instead of an inline IIFE.
 - `TickDebriefPanel` action-row class assembly now uses `clsx` for clearer stateful styling logic.
+- Auto-tick ownership moved into the single `gameWorld` actor. The actor self-schedules exactly one future tick at a time and only schedules tick `N+1` after tick `N` finishes. A generation token invalidates stale scheduled callbacks after stop/start/interval changes.
+- Important future constraint for multiplayer: this is not a cross-actor barrier. If simulation is ever split across multiple actors or players, add a coordinator that advances the world only after all required participants acknowledge tick completion.
+
+**Multiplayer tick-barrier options to revisit later:**
+- Central coordinator actor: world coordinator issues tick `N`, waits for `tick-complete(N)` from each participant actor, then advances to tick `N+1`.
+- Deadline + missing-participant policy: coordinator waits until all acks arrive or a timeout hits, then applies a defined fallback (`skip`, `last-known-input`, `pause-match`, or `drop-player`).
+- Two-phase tick protocol: participants first compute/report decisions for tick `N`, then coordinator commits all mutations together so no actor can start `N+1` early.
+- Tick token/idempotency guards: every tick message carries a tick number and generation token so duplicate or stale completions are ignored safely.
 
 **How to apply:** Next milestone is M3 — shared map / basic deception (two-layer map: ground truth vs perceived, scout write channels, basic passive deception via false marker signals).

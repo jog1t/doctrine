@@ -6,6 +6,7 @@ interface GameControlsProps {
   onToggleAutoTick: () => void;
   autoTicking: boolean;
   tickSpeed: number;
+  tickSpeedUpdating: boolean;
   onTickSpeedChange: (ms: number) => void;
 }
 
@@ -15,20 +16,22 @@ export function GameControls({
   onToggleAutoTick,
   autoTicking,
   tickSpeed,
+  tickSpeedUpdating,
   onTickSpeedChange,
 }: GameControlsProps) {
   return (
     <div className="game-controls">
-      <button className="btn btn-primary" onClick={onTick} disabled={autoTicking}>
+      <button type="button" className="btn btn-primary" onClick={onTick} disabled={autoTicking}>
         TICK
       </button>
       <button
+        type="button"
         className={`btn ${autoTicking ? "btn-stop" : "btn-start"}`}
         onClick={onToggleAutoTick}
       >
         {autoTicking ? "STOP" : "START"}
       </button>
-      <button className="btn btn-secondary" onClick={onReset}>
+      <button type="button" className="btn btn-secondary" onClick={onReset}>
         RESET
       </button>
       <div className="speed-control">
@@ -37,9 +40,10 @@ export function GameControls({
           id="tick-speed"
           type="range"
           min={100}
-          max={2000}
+          max={5000}
           step={100}
           value={tickSpeed}
+          disabled={tickSpeedUpdating}
           onChange={(e) => onTickSpeedChange(Number(e.target.value))}
         />
         <span className="speed-value">{tickSpeed}ms</span>

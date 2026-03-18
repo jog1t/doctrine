@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_DOCTRINE } from "@doctrine/shared";
 import { setupTest } from "rivetkit/test";
 import {
+  advanceAutoTickGeneration,
   cleanupThreatSightings,
   cleanupWorldIntel,
   type GameWorldRuntimeState,
   getPublicState,
   normalizeDoctrine,
+  normalizeAutoTickGeneration,
   upsertThreatSighting,
 } from "../actors/game-world.js";
 import { registry } from "../actors/registry.js";
@@ -109,6 +111,8 @@ describe("getPublicState", () => {
     const state = getPublicState({
       phase: "running",
       tick: 4,
+      autoTick: true,
+      tickIntervalMs: 750,
       map: makeMap(),
       agents: [makeAgent("scout-0", "scout", { x: 16, y: 12 })],
       doctrine: makeDoctrine(),
@@ -125,6 +129,29 @@ describe("getPublicState", () => {
     expect(state.threatSightings).toEqual([
       { threatId: "threat-0", position: { x: 19, y: 12 }, lastSeenTick: 4 },
     ]);
+    expect(state.autoTick).toBe(true);
+    expect(state.tickIntervalMs).toBe(750);
+  });
+});
+
+describe("auto-tick generation helpers", () => {
+  it("increments the generation token used to invalidate stale scheduled ticks", () => {
+    const state = { autoTickGeneration: 2 };
+
+    const next = advanceAutoTickGeneration(state);
+
+    expect(next).toBe(3);
+    expect(state.autoTickGeneration).toBe(3);
+  });
+
+  it("repairs legacy invalid generation values before incrementing", () => {
+    const state = { autoTickGeneration: Number.NaN };
+
+    normalizeAutoTickGeneration(state);
+    const next = advanceAutoTickGeneration(state);
+
+    expect(next).toBe(1);
+    expect(state.autoTickGeneration).toBe(1);
   });
 });
 
@@ -207,5 +234,38 @@ describe("gameWorld executeTick", () => {
     expect(result.state.threatSightings).toEqual([
       { threatId: "threat-0", position: { x: 18, y: 12 }, lastSeenTick: 5 },
     ]);
+  });
+
+  it("invalidates stale scheduled ticks after auto-tick is stopped", async (c) => {
+    const { client } = await setupTest(c, registry);
+    const handle = client.gameWorld.getOrCreate(["scheduled-tick-stop-guard"]);
+
+    await handle.initGame(123);
+    await handle.startAutoTick();
+    await handle.stopAutoTick();
+
+    const staleRun = await handle.runScheduledTick(1);
+    const state = await handle.getState();
+
+    expect(staleRun).toEqual({ skipped: true, reason: "auto-tick-disabled" });
+    expect(state.tick).toBe(0);
+    expect(state.autoTick).toBe(false);
+  });
+
+  it("ignores stale scheduled generations after the interval is changed", async (c) => {
+    const { client } = await setupTest(c, registry);
+    const handle = client.gameWorld.getOrCreate(["scheduled-tick-generation-guard"]);
+
+    await handle.initGame(123);
+    await handle.startAutoTick();
+    await handle.setTickInterval(250);
+
+    const staleRun = await handle.runScheduledTick(1);
+    const state = await handle.getState();
+
+    expect(staleRun).toEqual({ skipped: true, reason: "stale-generation" });
+    expect(state.tick).toBe(0);
+    expect(state.tickIntervalMs).toBe(250);
+    expect(state.autoTick).toBe(true);
   });
 });

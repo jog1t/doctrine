@@ -2,7 +2,7 @@
 
 Doctrine is a strategy game prototype where players write instruction systems ("doctrine") that govern autonomous agents.
 
-The codebase is currently beyond the original M1 prototype docs: it includes working memory, episodic memory, doctrine versioning, tower-based doctrine sync, roaming threats, hard death, and debrief/memory UI. It is still a single-actor, single-player prototype and does not yet have server-authoritative ticking, spawn recovery, wave propagation, or multiplayer.
+The codebase is currently beyond the original M1 prototype docs: it includes working memory, episodic memory, doctrine versioning, tower-based doctrine sync, roaming threats, hard death, debrief/memory UI, and server-owned auto-tick inside the single `gameWorld` actor. It is still a single-actor, single-player prototype and does not yet have spawn recovery, wave propagation, or multiplayer.
 
 ## Tech Stack
 
@@ -15,7 +15,7 @@ The codebase is currently beyond the original M1 prototype docs: it includes wor
 ## Current State
 
 - Runtime model: one `gameWorld` actor owns all world state
-- Tick model: manual ticks and client-driven auto-tick from the React app
+- Tick model: manual ticks plus server-scheduled auto-tick in `gameWorld`
 - Shipped mechanics:
   - working memory (Tier 1)
   - episodic memory (Tier 2)
@@ -93,7 +93,8 @@ Run from repository root:
 - Client state is UI-only.
 - Shared types in `shared/src/index.ts` are the source of truth for server-client contracts.
 - Map generation and agent decisions are deterministic (no runtime randomness in engine logic).
-- `client/src/App.tsx` still drives auto-tick locally; server-side scheduling is planned but not wired yet.
+- Auto-tick is now scheduled by `server/src/actors/game-world.ts`; the client only issues start/stop/interval control actions.
+- This solves overlap for the current single-actor sim, but it is not yet a multiplayer tick barrier. If simulation is later split across multiple actors or players, a coordinator/ack design will be required.
 
 For current implementation details, see `HANDOFF.md`.
 

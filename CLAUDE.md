@@ -10,7 +10,7 @@ Current repo reality:
 
 - single `gameWorld` actor owns the world
 - client UI is React
-- auto-tick is still client-driven today
+- auto-tick is server-scheduled inside `gameWorld`
 - M2-style mechanics exist in code: working memory, episodic memory, doctrine versioning, tower radius sync, threats, hard death, debrief memory UI
 - M2.5+ systems like spawn recovery, wave propagation, tower construction, and multiplayer are not shipped yet
 
@@ -41,7 +41,7 @@ doctrine/
 ├── client/src/
 │   ├── components/              # UI components
 │   ├── rivet.ts                 # createRivetKit() setup
-│   └── App.tsx                  # Actor connection and local auto-tick
+│   └── App.tsx                  # Actor connection and tick control UI
 ├── HANDOFF.md                   # Current state and known caveats
 ├── ARCHITECTURE.md              # Durable architecture notes
 └── CLAUDE.md                    # This file
@@ -104,11 +104,12 @@ The codebase is not ready for speculative actor decomposition.
 
 These are true today, even if they are not the ideal long-term architecture:
 
-- auto-tick is still driven by a client `setInterval`
-- server-side tick-control actions exist but are not wired into the UI
+- auto-tick is scheduled by `server/src/actors/game-world.ts`
+- the client controls auto-tick through actor actions and listens for actor events
 - doctrine validation is light at deploy time and relies heavily on normalization
 - the client only receives `previousDoctrine`, not full `doctrineHistory`
 - threats can damage agents, but threat neutralization is not fully implemented
+- multiplayer tick barriers/coordinators do not exist yet; current scheduling assumptions are valid only because gameplay still lives in one actor
 
 Do not write docs or code as if those problems are already solved.
 
@@ -168,7 +169,7 @@ If you need milestone truth, cross-check `HANDOFF.md` and the code.
 - do not add `Math.random()` to engine logic
 - do not move authoritative world state into React
 - do not add speculative schema fields without updating `shared/src/index.ts`
-- do not assume server-side ticking is already active
+- do not assume current single-actor scheduling is sufficient for future multiplayer or multi-actor simulation
 - do not claim multiplayer behavior that the current actor/runtime does not implement
 - do not implement LLM reasoning paths before a concrete milestone requires it
 - do not skip doc updates when runtime patterns change
