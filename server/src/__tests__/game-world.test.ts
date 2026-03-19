@@ -272,6 +272,48 @@ describe("gameWorld executeTick", () => {
     ]);
   });
 
+  it("removes a neutralized threat before threat movement and cleans up its intel", async (c) => {
+    const { client } = await setupTest(c, registry);
+    const handle = client.gameWorld.getOrCreate(["execute-tick-threat-neutralization"]);
+
+    await handle.initGame(123);
+
+    const gatewayUrl = await handle.getGatewayUrl();
+    const stateResponse = await fetch(`${gatewayUrl}/inspector/state`, {
+      headers: { Authorization: "Bearer token" },
+    });
+    expect(stateResponse.status).toBe(200);
+
+    const inspectorPayload = (await stateResponse.json()) as { state: GameWorldRuntimeState };
+    const actorState = inspectorPayload.state;
+    actorState.tick = 4;
+    actorState.agents = [
+      makeAgent("defender-0", "defender", { x: 16, y: 12 }),
+      makeAgent("gatherer-0", "gatherer", { x: 18, y: 12 }, { hp: 5, maxHp: 5 }),
+    ];
+    actorState.threats = [makeThreat("threat-0", { x: 17, y: 12 })];
+    actorState.threats[0].hp = 1;
+    actorState.threatSightings = [{ threatId: "threat-0", position: { x: 17, y: 12 }, lastSeenTick: 4 }];
+
+    const patchResponse = await fetch(`${gatewayUrl}/inspector/state`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+      },
+      body: JSON.stringify({ state: actorState }),
+    });
+    expect(patchResponse.status).toBe(200);
+
+    const result = await handle.executeTick();
+
+    expect(result.state.tick).toBe(5);
+    expect(result.state.threats).toEqual([]);
+    expect(result.state.threatSightings).toEqual([]);
+    expect(result.state.agents.find((agent) => agent.id === "gatherer-0")?.hp).toBe(5);
+    expect(result.debrief.notices).toContain("THREAT DOWN: threat-0 neutralized by defenders");
+  });
+
   it("returns doctrine history after multiple deploys for deeply stale clients", async (c) => {
     const { client } = await setupTest(c, registry);
     const handle = client.gameWorld.getOrCreate(["public-doctrine-history"]);

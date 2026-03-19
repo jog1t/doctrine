@@ -417,6 +417,7 @@ function renderAgentShape(cx: number, cy: number, r: number, status: string, col
         />
       );
     case "defending":
+    case "attacking":
       return (
         <rect
           x={cx - r + 1}

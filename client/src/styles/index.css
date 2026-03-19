@@ -469,6 +469,51 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.debrief-threat-down {
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--color-success) 8%, transparent);
+}
+
+.debrief-threat-down-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--color-success);
+  margin-bottom: 4px;
+}
+
+.debrief-threat-down-summary {
+  font-size: 12px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.debrief-threat-down-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.debrief-threat-down-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-success) 30%, var(--border));
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.debrief-threat-down-icon {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.debrief-threat-down-id {
+  color: var(--text-primary);
+}
+
 .debrief-threat-intel {
   padding: 8px 16px 10px;
   border-bottom: 1px solid var(--border);

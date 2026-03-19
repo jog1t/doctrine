@@ -130,6 +130,9 @@ function findNearestThreat(from: Position, threats: Threat[], maxRange: number):
   return nearest;
 }
 
+const DEFENDER_ATTACK_RANGE = 1;
+const DEFENDER_ATTACK_DAMAGE = 1;
+
 export const THREAT_SIGHTING_EXPIRY_TICKS = 20;
 
 function isThreatSightingFresh(sighting: ThreatSighting, tick: number): boolean {
@@ -606,6 +609,25 @@ function executeDefender(
       });
     }
 
+    if (threatDist <= DEFENDER_ATTACK_RANGE) {
+      const chaseTask = `chase:${visibleThreat.id}`;
+      const sameTarget = agent.workingMemory.currentTask === chaseTask;
+      agent.workingMemory.currentTask = chaseTask;
+      agent.workingMemory.taskTarget = visibleThreat.position;
+      if (!sameTarget) agent.workingMemory.taskStartTick = tick;
+
+      return {
+        agentId: agent.id,
+        agentType: "defender",
+        action: "attack",
+        reason: `Attacking threat ${visibleThreat.id} at (${visibleThreat.position.x}, ${visibleThreat.position.y})`,
+        from: agent.position,
+        to: { ...visibleThreat.position },
+        targetThreatId: visibleThreat.id,
+        doctrineVersion: doctrine.version,
+      };
+    }
+
     if (cfg.chaseThreats && threatDist <= cfg.maxChaseDistance) {
       // Commit to chasing via working memory; reset start tick only when switching to a different
       // threat. Compare by threat ID (not position) — threats move each tick so position-based
@@ -753,6 +775,7 @@ export function applyAction(
   map: GameMap,
   tick: number,
   pendingEpisodes: Array<{ agentId: string; record: EpisodeRecord }>,
+  threats: Threat[] = [],
 ): number {
   const agent = agents.find((a) => a.id === action.agentId);
   if (!agent) return 0;
@@ -821,6 +844,38 @@ export function applyAction(
     case "guard":
       agent.status = "defending";
       break;
+
+    case "attack": {
+      agent.status = "attacking";
+      if (!action.targetThreatId) break;
+
+      const threat = threats.find((candidate) => candidate.id === action.targetThreatId);
+      if (!threat || threat.hp <= 0) break;
+
+      threat.hp = Math.max(0, threat.hp - DEFENDER_ATTACK_DAMAGE);
+
+      if (threat.hp === 0) {
+        pendingEpisodes.push({
+          agentId: agent.id,
+          record: {
+            tick,
+            eventType: "threat-neutralized",
+            position: { ...threat.position },
+            detail: `Neutralized ${threat.id} at (${threat.position.x}, ${threat.position.y})`,
+          },
+        });
+
+        if (
+          agent.workingMemory.currentTask === `chase:${threat.id}` ||
+          agent.workingMemory.currentTask === `investigate:${threat.id}`
+        ) {
+          agent.workingMemory.currentTask = null;
+          agent.workingMemory.taskTarget = null;
+          agent.workingMemory.taskStartTick = null;
+        }
+      }
+      break;
+    }
 
     case "idle":
       agent.status = "idle";

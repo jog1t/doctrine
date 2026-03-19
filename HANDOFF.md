@@ -96,6 +96,8 @@ If code and docs disagree, trust:
 - Threats spawn every 20 ticks up to a max of 3.
 - Threats path toward the nearest agent.
 - Threats deal 1 damage on contact.
+- Defenders can neutralize threats with a 1-damage melee attack at range 1.
+- Neutralized threats are removed before the threat movement/damage step resolves.
 - Dead agents are removed from the world.
 - Debrief emits `FALLEN` notices.
 
@@ -167,12 +169,11 @@ Do not implement against speculative schema unless `shared/src/index.ts` is upda
 - The client now receives a capped `doctrineHistory` render summary window, so UI can resolve recently stale agents accurately without pulling full historical doctrine payloads.
 - UI still falls back to a neutral display if an agent somehow references a version older than the capped client history.
 
-### Threat combat is one-sided today
+### Threat combat is prototype-simple, not fully systemic
 
-- Threats can damage agents.
-- Defenders can chase threats.
-- No agent attack/damage/removal path for threats is implemented yet.
-- In practice, threats are persistent hazards rather than fully modeled combatants.
+- Threats can damage agents on contact.
+- Defenders can chase nearby threats and neutralize them with melee attacks.
+- Combat is still intentionally lightweight: only defenders attack, there are no ranged attacks, and threat behavior is still nearest-agent pursuit.
 
 ---
 
@@ -202,7 +203,7 @@ Highest-value next milestone:
 - add deployment/spawn schema to `shared/src/index.ts`
 - implement replacement spawning from base
 - surface spawn queue in the debrief/UI
-- define threat/combat behavior clearly enough to test sustained play
+- tune threat/combat balance under sustained play
 
 ### Infrastructure cleanup that should happen soon
 
