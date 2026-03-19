@@ -181,6 +181,40 @@ export interface Doctrine {
   basePosition: Position;
 }
 
+export interface DoctrineHistoryEntry {
+  version: number;
+  doctrine: Doctrine;
+}
+
+export interface DoctrineRenderSummary {
+  version: number;
+  memoryMaxEpisodes: Record<AgentType, number>;
+}
+
+export function summarizeDoctrineForRender(doctrine: Doctrine): DoctrineRenderSummary {
+  return {
+    version: doctrine.version,
+    memoryMaxEpisodes: {
+      gatherer: doctrine.gatherer.memory.maxEpisodes,
+      scout: doctrine.scout.memory.maxEpisodes,
+      defender: doctrine.defender.memory.maxEpisodes,
+    },
+  };
+}
+
+export function resolveDoctrineMaxEpisodes(
+  currentDoctrine: Doctrine,
+  doctrineHistory: DoctrineRenderSummary[],
+  agentType: AgentType,
+  version: number,
+): number | null {
+  if (version === currentDoctrine.version) {
+    return summarizeDoctrineForRender(currentDoctrine).memoryMaxEpisodes[agentType];
+  }
+
+  return doctrineHistory.find((entry) => entry.version === version)?.memoryMaxEpisodes[agentType] ?? null;
+}
+
 // --- Tick & Debrief ---
 
 export interface AgentAction {
@@ -218,8 +252,8 @@ export interface GameState {
   map: GameMap;
   agents: Agent[];
   doctrine: Doctrine;
-  /** Most recent prior doctrine — exposed for UI display only. Agent version resolution uses doctrineHistory on the server. */
-  previousDoctrine: Doctrine | null;
+  /** Capped doctrine history summary exposed for stale-version UI rendering. */
+  doctrineHistory: DoctrineRenderSummary[];
   basePosition: Position;
   totalResourcesCollected: number;
   debriefs: TickDebrief[];

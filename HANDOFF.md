@@ -89,7 +89,7 @@ If code and docs disagree, trust:
 - The server stores a capped doctrine history as an array of `{ version, doctrine }` entries, not a keyed map.
 - On deploy, only agents within tower `broadcastRadius` update immediately.
 - On later ticks, stale agents update when they enter tower range.
-- The client only receives `previousDoctrine`, not full history.
+- The client receives a capped `doctrineHistory` render summary containing only stale-UI fields it actually needs.
 
 ### Threats and death
 
@@ -164,8 +164,8 @@ Do not implement against speculative schema unless `shared/src/index.ts` is upda
 ### Client visibility into doctrine history is partial
 
 - Server logic can resolve agents more than one version behind using `doctrineHistory`.
-- The client cannot fully do that because it only receives `previousDoctrine`.
-- UI falls back to a neutral display for agents whose exact doctrine version is unavailable client-side.
+- The client now receives a capped `doctrineHistory` render summary window, so UI can resolve recently stale agents accurately without pulling full historical doctrine payloads.
+- UI still falls back to a neutral display if an agent somehow references a version older than the capped client history.
 
 ### Threat combat is one-sided today
 
@@ -209,7 +209,7 @@ Highest-value next milestone:
 - validate the new server-driven tick scheduling under longer play sessions
 - align repo docs with current code reality
 - strengthen doctrine validation on deploy
-- decide how much doctrine history the client should receive
+- validate whether the current capped doctrine history window is sufficient for UI needs
 - design an explicit multiplayer tick barrier/coordinator before actor decomposition
 
 ### Defer until after M2.5a unless required
