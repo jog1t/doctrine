@@ -132,6 +132,42 @@ describe("getPublicState", () => {
     expect(state.autoTick).toBe(true);
     expect(state.tickIntervalMs).toBe(750);
   });
+
+  it("exposes capped doctrine history so clients can resolve stale agent versions", () => {
+    const v1 = makeDoctrine({ version: 1, scout: { ...makeDoctrine().scout, memory: { maxEpisodes: 7, decayAfterTicks: 10 } } });
+    const v2 = makeDoctrine({ version: 2, scout: { ...makeDoctrine().scout, memory: { maxEpisodes: 11, decayAfterTicks: 20 } } });
+    const state = getPublicState({
+      phase: "running",
+      tick: 4,
+      autoTick: false,
+      tickIntervalMs: 1000,
+      map: makeMap(),
+      agents: [makeAgent("scout-0", "scout", { x: 16, y: 12 }, { deployedDoctrineVersion: 1 })],
+      doctrine: makeDoctrine({ version: 3 }),
+      doctrineHistory: [
+        { version: 1, doctrine: v1 },
+        { version: 2, doctrine: v2 },
+      ],
+      basePosition: { x: 16, y: 12 },
+      totalResourcesCollected: 0,
+      debriefs: [],
+      knownResources: [],
+      threats: [],
+      threatSightings: [],
+      towers: [makeTower("tower-0", { x: 16, y: 12 })],
+    });
+
+    expect(state.doctrineHistory).toEqual([
+      {
+        version: 1,
+        memoryMaxEpisodes: { gatherer: v1.gatherer.memory.maxEpisodes, scout: 7, defender: v1.defender.memory.maxEpisodes },
+      },
+      {
+        version: 2,
+        memoryMaxEpisodes: { gatherer: v2.gatherer.memory.maxEpisodes, scout: 11, defender: v2.defender.memory.maxEpisodes },
+      },
+    ]);
+  });
 });
 
 describe("auto-tick generation helpers", () => {
@@ -234,6 +270,21 @@ describe("gameWorld executeTick", () => {
     expect(result.state.threatSightings).toEqual([
       { threatId: "threat-0", position: { x: 18, y: 12 }, lastSeenTick: 5 },
     ]);
+  });
+
+  it("returns doctrine history after multiple deploys for deeply stale clients", async (c) => {
+    const { client } = await setupTest(c, registry);
+    const handle = client.gameWorld.getOrCreate(["public-doctrine-history"]);
+
+    await handle.initGame(123);
+    await handle.deployDoctrine(makeDoctrine({ name: "v2" }));
+    await handle.deployDoctrine(makeDoctrine({ name: "v3" }));
+
+    const state = await handle.getState();
+
+    expect(state.doctrine.version).toBe(3);
+    expect(state.doctrineHistory.map((entry) => entry.version)).toEqual([1, 2]);
+    expect(state.doctrineHistory[0]?.memoryMaxEpisodes.scout).toBe(20);
   });
 
   it("invalidates stale scheduled ticks after auto-tick is stopped", async (c) => {

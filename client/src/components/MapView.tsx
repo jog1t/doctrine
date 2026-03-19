@@ -1,5 +1,15 @@
 import React from "react";
-import type { Agent, Doctrine, GameMap, Position, Threat, ThreatSighting, Tower } from "@doctrine/shared";
+import { resolveDoctrineMaxEpisodes } from "@doctrine/shared";
+import type {
+  Agent,
+  Doctrine,
+  DoctrineRenderSummary,
+  GameMap,
+  Position,
+  Threat,
+  ThreatSighting,
+  Tower,
+} from "@doctrine/shared";
 
 interface MapViewProps {
   map: GameMap;
@@ -10,7 +20,7 @@ interface MapViewProps {
   threatSightings: ThreatSighting[];
   towers: Tower[];
   doctrine: Doctrine;
-  previousDoctrine: Doctrine | null;
+  doctrineHistory: DoctrineRenderSummary[];
 }
 
 const TILE_SIZE = 22;
@@ -34,27 +44,36 @@ const STACKED_AGENT_OFFSETS = [
   { dx: 5, dy: 5 },
 ];
 
-function memoryLoad(agent: Agent, doctrine: Doctrine, previousDoctrine: Doctrine | null): number {
-  // Resolve the doctrine this agent is actually running on the server
-  const agentDoctrine =
-    agent.deployedDoctrineVersion === doctrine.version ? doctrine :
-    agent.deployedDoctrineVersion === previousDoctrine?.version ? previousDoctrine :
-    null; // version too old — not available on client; show neutral ring
+function memoryLoad(
+  agent: Agent,
+  doctrine: Doctrine,
+  doctrineHistory: DoctrineRenderSummary[],
+): number {
+  const maxEpisodes = resolveDoctrineMaxEpisodes(
+    doctrine,
+    doctrineHistory,
+    agent.type,
+    agent.deployedDoctrineVersion,
+  );
 
-  if (!agentDoctrine) return 0.3;
-
-  let maxEpisodes: number;
-  if (agent.type === "gatherer") maxEpisodes = agentDoctrine.gatherer.memory.maxEpisodes;
-  else if (agent.type === "scout") maxEpisodes = agentDoctrine.scout.memory.maxEpisodes;
-  else if (agent.type === "defender") maxEpisodes = agentDoctrine.defender.memory.maxEpisodes;
-  else maxEpisodes = 10;
+  if (maxEpisodes === null) return 0.3;
 
   // Unlimited (maxEpisodes=0): scale by a fixed cap so the ring remains informative
   if (maxEpisodes === 0) return agent.episodes.length > 0 ? Math.min(1, agent.episodes.length / 50) : 0;
   return Math.min(1, agent.episodes.length / maxEpisodes);
 }
 
-export function MapView({ map, agents, basePosition, currentTick, threats, threatSightings, towers, doctrine, previousDoctrine }: MapViewProps) {
+export function MapView({
+  map,
+  agents,
+  basePosition,
+  currentTick,
+  threats,
+  threatSightings,
+  towers,
+  doctrine,
+  doctrineHistory,
+}: MapViewProps) {
   if (!map) return null;
 
   const width = map.width * TILE_SIZE;
@@ -257,7 +276,11 @@ export function MapView({ map, agents, basePosition, currentTick, threats, threa
         })}
 
         {/* Agents — offset stacked agents so all are visible */}
-        <AgentMarkers agents={agents} doctrine={doctrine} previousDoctrine={previousDoctrine} />
+        <AgentMarkers
+          agents={agents}
+          doctrine={doctrine}
+          doctrineHistory={doctrineHistory}
+        />
       </svg>
 
       {threatSightings.length > 0 && (
@@ -280,11 +303,11 @@ export function MapView({ map, agents, basePosition, currentTick, threats, threa
 function AgentMarkers({
   agents,
   doctrine,
-  previousDoctrine,
+  doctrineHistory,
 }: {
   agents: Agent[];
   doctrine: Doctrine;
-  previousDoctrine: Doctrine | null;
+  doctrineHistory: DoctrineRenderSummary[];
 }) {
   const tileCounts = new Map<string, number>();
   const tileSlot = new Map<string, number>();
@@ -304,7 +327,7 @@ function AgentMarkers({
     const cy = agent.position.y * TILE_SIZE + TILE_SIZE / 2 + offset.dy;
     const color = AGENT_COLORS[agent.type];
     const r = 5;
-    const load = memoryLoad(agent, doctrine, previousDoctrine);
+    const load = memoryLoad(agent, doctrine, doctrineHistory);
 
     return (
       <g key={agent.id}>

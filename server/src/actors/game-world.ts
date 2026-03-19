@@ -4,6 +4,8 @@ import type {
   AgentAction,
   AgentType,
   Doctrine,
+  DoctrineHistoryEntry,
+  DoctrineRenderSummary,
   EpisodeRecord,
   GameMap,
   GamePhase,
@@ -14,7 +16,7 @@ import type {
   ThreatSighting,
   Tower,
 } from "@doctrine/shared";
-import { DEFAULT_DOCTRINE } from "@doctrine/shared";
+import { DEFAULT_DOCTRINE, summarizeDoctrineForRender } from "@doctrine/shared";
 import { generateMap } from "../engine/map-generator.js";
 import {
   THREAT_SIGHTING_EXPIRY_TICKS,
@@ -122,7 +124,7 @@ export type GameWorldRuntimeState = {
   map: GameMap | null;
   agents: Agent[];
   doctrine: Doctrine;
-  doctrineHistory: Array<{ version: number; doctrine: Doctrine }>;
+  doctrineHistory: DoctrineHistoryEntry[];
   basePosition: Position;
   totalResourcesCollected: number;
   debriefs: TickDebrief[];
@@ -247,7 +249,7 @@ export const gameWorld = actor({
     agents: [] as Agent[],
     doctrine: DEFAULT_DOCTRINE as Doctrine,
     /** Normalized history of past doctrine versions, keyed by version. Capped at 5 entries. */
-    doctrineHistory: [] as Array<{ version: number; doctrine: Doctrine }>,
+    doctrineHistory: [] as DoctrineHistoryEntry[],
     basePosition: DEFAULT_DOCTRINE.basePosition,
     totalResourcesCollected: 0,
     debriefs: [] as TickDebrief[],
@@ -348,7 +350,7 @@ export const gameWorld = actor({
         }
       }
 
-      // Broadcast full public state so clients immediately see previousDoctrine,
+      // Broadcast full public state so clients immediately see compact doctrine history,
       // updated agent deployedDoctrineVersions, and the new doctrine together.
       c.broadcast("doctrineDeployed", getPublicState(c.state));
       return c.state.doctrine;
@@ -560,7 +562,7 @@ function runTick(
   tick: number,
   agents: Agent[],
   doctrine: Doctrine,
-  doctrineHistory: Array<{ version: number; doctrine: Doctrine }>,
+  doctrineHistory: DoctrineHistoryEntry[],
   map: GameMap,
   knownResources: Position[],
   threatSightings: ThreatSighting[],
@@ -637,7 +639,7 @@ function runTick(
 function resolveDoctrineForAgent(
   agent: Agent,
   current: Doctrine,
-  history: Array<{ version: number; doctrine: Doctrine }>,
+  history: DoctrineHistoryEntry[],
 ): Doctrine {
   if (agent.deployedDoctrineVersion === current.version) return current;
   return history.find((h) => h.version === agent.deployedDoctrineVersion)?.doctrine ?? current;
@@ -680,7 +682,7 @@ export function getPublicState(state: {
   map: GameMap | null;
   agents: Agent[];
   doctrine: Doctrine;
-  doctrineHistory: Array<{ version: number; doctrine: Doctrine }>;
+  doctrineHistory: DoctrineHistoryEntry[];
   basePosition: { x: number; y: number };
   totalResourcesCollected: number;
   debriefs: TickDebrief[];
@@ -689,8 +691,6 @@ export function getPublicState(state: {
   threatSightings: ThreatSighting[];
   towers: Tower[];
 }): GameState {
-  // Expose the most-recent historical doctrine as previousDoctrine for the client UI
-  const previousDoctrine = (state.doctrineHistory ?? []).at(-1)?.doctrine ?? null;
   return {
     phase: state.phase,
     tick: state.tick,
@@ -699,7 +699,7 @@ export function getPublicState(state: {
     map: state.map!,
     agents: state.agents,
     doctrine: normalizeDoctrine(state.doctrine),
-    previousDoctrine,
+    doctrineHistory: state.doctrineHistory.map((entry): DoctrineRenderSummary => summarizeDoctrineForRender(entry.doctrine)),
     basePosition: state.basePosition,
     totalResourcesCollected: state.totalResourcesCollected,
     debriefs: state.debriefs,

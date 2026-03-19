@@ -91,7 +91,7 @@ Important limit: this is not a multiplayer synchronization system. If gameplay i
 
 Every deploy increments doctrine version. Each agent tracks `deployedDoctrineVersion` and may continue running an older version until it re-enters tower range.
 
-The server stores a capped doctrine history array for correct agent-side resolution. The client only receives `previousDoctrine` for display, which is enough for basic stale indicators but not for perfect rendering of deeply stale agents.
+The server stores a capped doctrine history array for correct agent-side resolution, and the client receives a compact capped render-summary window so stale-agent UI can resolve recent versions accurately without pulling full historical doctrine payloads.
 
 ### 6. Tower sync is radius-based, not wave-based
 
@@ -170,7 +170,7 @@ These are important because future work should not accidentally assume they are 
 
 1. Auto-tick is server-owned for the single `gameWorld` actor, but multiplayer tick coordination does not exist yet.
 2. Doctrine validation is still lenient in practice despite the presence of `DOCTRINE_SCHEMA`.
-3. Client doctrine-history visibility is incomplete for agents more than one version behind.
+3. Client doctrine-history visibility is still capped, so versions older than the retained history window cannot be resolved perfectly.
 4. Threat combat is one-sided.
 5. Recovery spawning after hard death is not implemented.
 6. Micro/macro tick separation is still design intent, not code reality.
@@ -182,7 +182,7 @@ The most valuable next architectural steps are:
 1. Validate server-owned auto-tick under longer-running sessions.
 2. Add recovery spawning so hard death does not end sessions permanently.
 3. Tighten doctrine validation at deploy boundaries.
-4. Update client/server stale-doctrine representation so UI remains correct as version history grows.
+4. Validate whether the current capped doctrine-history payload remains sufficient as version history grows.
 5. Define a multiplayer tick coordinator/barrier before splitting gameplay across actors.
 
 ## Reference Docs

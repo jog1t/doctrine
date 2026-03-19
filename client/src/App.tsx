@@ -164,7 +164,7 @@ export function App() {
             threatSightings={gameState.threatSightings ?? []}
             towers={gameState.towers ?? []}
             doctrine={gameState.doctrine}
-            previousDoctrine={gameState.previousDoctrine}
+            doctrineHistory={gameState.doctrineHistory ?? []}
           />
           <GameControls
             onTick={handleTick}
@@ -182,7 +182,7 @@ export function App() {
             debrief={latestDebrief}
             agents={gameState.agents}
             doctrine={gameState.doctrine}
-            previousDoctrine={gameState.previousDoctrine}
+            doctrineHistory={gameState.doctrineHistory ?? []}
             threatSightings={gameState.threatSightings ?? []}
           />
         </div>

@@ -1,12 +1,21 @@
 import React, { useMemo, useState } from "react";
 import clsx from "clsx";
-import type { Agent, AgentAction, Doctrine, EpisodeEventType, ThreatSighting, TickDebrief } from "@doctrine/shared";
+import { resolveDoctrineMaxEpisodes } from "@doctrine/shared";
+import type {
+  Agent,
+  AgentAction,
+  Doctrine,
+  DoctrineRenderSummary,
+  EpisodeEventType,
+  ThreatSighting,
+  TickDebrief,
+} from "@doctrine/shared";
 
 interface TickDebriefPanelProps {
   debrief: TickDebrief | null;
   agents: Agent[];
   doctrine: Doctrine | null;
-  previousDoctrine: Doctrine | null;
+  doctrineHistory: DoctrineRenderSummary[];
   threatSightings: ThreatSighting[];
 }
 
@@ -42,7 +51,13 @@ const EVENT_COLORS: Record<EpisodeEventType, string> = {
   "damage-taken": "var(--color-error)",
 };
 
-export function TickDebriefPanel({ debrief, agents, doctrine, previousDoctrine, threatSightings }: TickDebriefPanelProps) {
+export function TickDebriefPanel({
+  debrief,
+  agents,
+  doctrine,
+  doctrineHistory,
+  threatSightings,
+}: TickDebriefPanelProps) {
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
   const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
 
@@ -59,16 +74,13 @@ export function TickDebriefPanel({ debrief, agents, doctrine, previousDoctrine, 
   const staleAgents = agents.filter((a) => a.deployedDoctrineVersion < currentVersion);
 
   function getMaxEpisodes(agent: Agent): number | null {
-    // Resolve the doctrine version this agent is actually running on the server
-    const agentDoctrine =
-      agent.deployedDoctrineVersion === doctrine?.version ? doctrine :
-      agent.deployedDoctrineVersion === previousDoctrine?.version ? previousDoctrine :
-      null; // version too old — not available on client
-    if (!agentDoctrine) return null;
-    if (agent.type === "gatherer") return agentDoctrine.gatherer.memory.maxEpisodes;
-    if (agent.type === "scout") return agentDoctrine.scout.memory.maxEpisodes;
-    if (agent.type === "defender") return agentDoctrine.defender.memory.maxEpisodes;
-    return null;
+    if (!doctrine) return null;
+    return resolveDoctrineMaxEpisodes(
+      doctrine,
+      doctrineHistory,
+      agent.type,
+      agent.deployedDoctrineVersion,
+    );
   }
 
   return (
