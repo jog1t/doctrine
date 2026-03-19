@@ -94,6 +94,7 @@ Run from repository root:
 - Shared types in `shared/src/index.ts` are the source of truth for server-client contracts.
 - Map generation and agent decisions are deterministic (no runtime randomness in engine logic).
 - Auto-tick is now scheduled by `server/src/actors/game-world.ts`; the client only issues start/stop/interval control actions.
+- For gameplay verification and UI checks, prefer manual ticks over auto-tick so outcomes stay reproducible; use auto-tick mainly for longer soak checks.
 - This solves overlap for the current single-actor sim, but it is not yet a multiplayer tick barrier. If simulation is later split across multiple actors or players, a coordinator/ack design will be required.
 
 For current implementation details, see `HANDOFF.md`.

@@ -106,9 +106,10 @@ These are true today, even if they are not the ideal long-term architecture:
 
 - auto-tick is scheduled by `server/src/actors/game-world.ts`
 - the client controls auto-tick through actor actions and listens for actor events
+- for gameplay verification, prefer manual tick execution over auto-tick so behavior and UI outcomes are reproducible; use auto-tick mainly for longer soak checks
 - doctrine validation is light at deploy time and relies heavily on normalization
 - the client receives a capped `doctrineHistory` render-summary window for stale UI; versions older than that window still cannot be resolved perfectly client-side
-- threats can damage agents, but threat neutralization is not fully implemented
+- threats can damage agents and defenders can neutralize them with simple melee combat; broader combat systems are not implemented
 - multiplayer tick barriers/coordinators do not exist yet; current scheduling assumptions are valid only because gameplay still lives in one actor
 
 Do not write docs or code as if those problems are already solved.

@@ -464,7 +464,7 @@ function executeWorldTick(c: {
     c.state.threats.push(spawnThreat(threatId, c.state.map, c.state.seed));
   }
 
-  const { debrief, newKnownResources, newThreatSightings, killedAgentIds } = runTick(
+  const { debrief, newKnownResources, newThreatSightings, killedAgentIds, neutralizedThreatIds } = runTick(
     c.state.tick,
     c.state.agents,
     c.state.doctrine,
@@ -492,6 +492,12 @@ function executeWorldTick(c: {
   });
   c.state.knownResources = cleanedIntel.knownResources;
   c.state.threatSightings = cleanedIntel.threatSightings;
+
+  if (neutralizedThreatIds.length > 0) {
+    debrief.notices.push(
+      ...neutralizedThreatIds.map((id) => `THREAT DOWN: ${id} neutralized by defenders`),
+    );
+  }
 
   if (killedAgentIds.length > 0) {
     const killedSet = new Set(killedAgentIds);
@@ -572,6 +578,7 @@ function runTick(
   newKnownResources: Position[];
   newThreatSightings: ThreatSighting[];
   killedAgentIds: string[];
+  neutralizedThreatIds: string[];
 } {
   const newKnownResources: Position[] = [];
   const newThreatSightings: ThreatSighting[] = [];
@@ -602,7 +609,20 @@ function runTick(
   // Apply actions
   let resourcesCollected = 0;
   for (const action of actions) {
-    resourcesCollected += applyAction(action, agents, map, tick, pendingEpisodes);
+    resourcesCollected += applyAction(action, agents, map, tick, pendingEpisodes, threats);
+  }
+
+  const neutralizedThreatIds = threats
+    .filter((threat) => threat.hp <= 0)
+    .map((threat) => threat.id);
+
+  if (neutralizedThreatIds.length > 0) {
+    const neutralizedSet = new Set(neutralizedThreatIds);
+    for (let i = threats.length - 1; i >= 0; i--) {
+      if (neutralizedSet.has(threats[i].id)) {
+        threats.splice(i, 1);
+      }
+    }
   }
 
   // Move threats toward agents
@@ -630,6 +650,7 @@ function runTick(
     newKnownResources,
     newThreatSightings,
     killedAgentIds,
+    neutralizedThreatIds,
   };
 }
 

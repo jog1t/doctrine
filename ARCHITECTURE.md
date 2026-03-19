@@ -103,11 +103,11 @@ Current tower behavior is simple:
 
 Wave propagation, pulse timing, tower construction, and conflict resolution are not implemented yet.
 
-### 7. Threats are hazards more than full combat units
+### 7. Threat combat is intentionally lightweight
 
-Threats spawn, move toward agents, and deal contact damage. Defenders can chase them, but agents do not yet have a fully implemented attack/removal path against threats.
+Threats spawn, move toward the nearest agent, and deal contact damage. Defenders can chase them and neutralize them with simple melee attacks once they close to range 1.
 
-That means the threat model currently supports pressure and hard death, but not complete combat resolution.
+This keeps the prototype deterministic and testable without introducing a broader combat stat system yet.
 
 ## Current Runtime Flow
 
@@ -171,7 +171,7 @@ These are important because future work should not accidentally assume they are 
 1. Auto-tick is server-owned for the single `gameWorld` actor, but multiplayer tick coordination does not exist yet.
 2. Doctrine validation is still lenient in practice despite the presence of `DOCTRINE_SCHEMA`.
 3. Client doctrine-history visibility is still capped, so versions older than the retained history window cannot be resolved perfectly.
-4. Threat combat is one-sided.
+4. Threat combat is still minimal and defender-only.
 5. Recovery spawning after hard death is not implemented.
 6. Micro/macro tick separation is still design intent, not code reality.
 

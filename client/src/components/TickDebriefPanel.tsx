@@ -22,6 +22,7 @@ interface TickDebriefPanelProps {
 const ACTION_ICONS: Record<string, string> = {
   move: ">",
   "move-intel": "»",
+  attack: "x",
   gather: "+",
   deposit: "$",
   observe: "?",
@@ -41,6 +42,7 @@ const EVENT_ICONS: Record<EpisodeEventType, string> = {
   "task-completed": "✓",
   "threat-spotted": "!",
   "damage-taken": "✕",
+  "threat-neutralized": "x",
 };
 
 const EVENT_COLORS: Record<EpisodeEventType, string> = {
@@ -49,6 +51,7 @@ const EVENT_COLORS: Record<EpisodeEventType, string> = {
   "task-completed": "var(--color-info)",
   "threat-spotted": "var(--color-warning)",
   "damage-taken": "var(--color-error)",
+  "threat-neutralized": "var(--color-success)",
 };
 
 export function TickDebriefPanel({
@@ -72,6 +75,12 @@ export function TickDebriefPanel({
 
   const currentVersion = doctrine?.version ?? 1;
   const staleAgents = agents.filter((a) => a.deployedDoctrineVersion < currentVersion);
+  const notices = debrief.notices ?? [];
+  const threatDownNotices = notices.filter((notice) => notice.startsWith("THREAT DOWN:"));
+  const threatDownIds = threatDownNotices.map((notice) =>
+    notice.replace(/^THREAT DOWN:\s*/, "").replace(/ neutralized by defenders$/, ""),
+  );
+  const otherNotices = notices.filter((notice) => !notice.startsWith("THREAT DOWN:"));
 
   function getMaxEpisodes(agent: Agent): number | null {
     if (!doctrine) return null;
@@ -99,6 +108,22 @@ export function TickDebriefPanel({
           ! VERSION SKEW: {staleAgents.map((a) => `${a.id} (v${a.deployedDoctrineVersion})`).join(", ")} running old doctrine
         </div>
       )}
+      {threatDownIds.length > 0 && (
+        <div className="debrief-threat-down">
+          <div className="debrief-threat-down-label">THREAT DOWN</div>
+          <div className="debrief-threat-down-summary">
+            {threatDownIds.length} {threatDownIds.length === 1 ? "hostile neutralized" : "hostiles neutralized"} this tick
+          </div>
+          <div className="debrief-threat-down-list">
+            {threatDownIds.map((threatId) => (
+              <div key={threatId} className="debrief-threat-down-entry">
+                <span className="debrief-threat-down-icon">x</span>
+                <span className="debrief-threat-down-id">{threatId}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {threatSightings.length > 0 && (
         <div className="debrief-threat-intel">
           <div className="debrief-threat-intel-label">THREAT INTEL</div>
@@ -113,9 +138,9 @@ export function TickDebriefPanel({
           </div>
         </div>
       )}
-      {debrief.notices && debrief.notices.length > 0 && (
+      {otherNotices.length > 0 && (
         <div className="debrief-notices">
-          {debrief.notices.map((notice, i) => (
+          {otherNotices.map((notice, i) => (
             <div key={`${i}-${notice}`} className={`debrief-notice ${notice.startsWith("FALLEN") ? "debrief-notice-fallen" : ""}`}>
               ! {notice}
             </div>

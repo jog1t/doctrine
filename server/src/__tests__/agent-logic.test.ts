@@ -329,6 +329,22 @@ describe("defender threat behavior", () => {
     expect(action.reason).toContain("Engaging threat");
   });
 
+  it("attacks an adjacent visible threat instead of moving into it", () => {
+    const map = makeMap();
+    const agent = makeAgent("defender-0", "defender", { x: 16, y: 12 });
+    const threat = makeThreat("threat-0", { x: 17, y: 12 });
+    const doctrine = makeDoctrine({
+      defender: { ...makeDoctrine().defender, chaseThreats: true, maxChaseDistance: 6 },
+    });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeAgent(agent, doctrine, map, 1, [], [], [threat], pending);
+
+    expect(action.action).toBe("attack");
+    expect(action.targetThreatId).toBe("threat-0");
+    expect(action.to).toMatchObject({ x: 17, y: 12 });
+  });
+
   it("records threat-spotted episode on first sighting", () => {
     const map = makeMap();
     const agent = makeAgent("defender-0", "defender", { x: 16, y: 12 });
@@ -385,7 +401,7 @@ describe("defender threat behavior", () => {
   it("holds position when chaseThreats=false even with visible threat", () => {
     const map = makeMap();
     const agent = makeAgent("defender-0", "defender", { x: 16, y: 12 });
-    const threat = makeThreat("threat-0", { x: 17, y: 12 });
+    const threat = makeThreat("threat-0", { x: 18, y: 12 });
     const doctrine = makeDoctrine({
       defender: { ...makeDoctrine().defender, chaseThreats: false, guardRadius: 4 },
     });
@@ -394,6 +410,21 @@ describe("defender threat behavior", () => {
     const action = executeAgent(agent, doctrine, map, 1, [], [], [threat], pending);
 
     expect(action.action).toBe("guard");
+  });
+
+  it("still attacks a threat already in melee range when chaseThreats=false", () => {
+    const map = makeMap();
+    const agent = makeAgent("defender-0", "defender", { x: 16, y: 12 });
+    const threat = makeThreat("threat-0", { x: 17, y: 12 });
+    const doctrine = makeDoctrine({
+      defender: { ...makeDoctrine().defender, chaseThreats: false, guardRadius: 4 },
+    });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeAgent(agent, doctrine, map, 1, [], [], [threat], pending);
+
+    expect(action.action).toBe("attack");
+    expect(action.targetThreatId).toBe("threat-0");
   });
 
   it("ignores threats beyond maxChaseDistance", () => {
@@ -703,6 +734,70 @@ describe("applyAction", () => {
     expect(agent.position).toMatchObject({ x: 15, y: 12 });
     expect(pending.find((e) => e.record.eventType === "task-completed")?.record.position).toMatchObject({ x: 15, y: 12 });
   });
+
+  it("damages the targeted threat when attacking", () => {
+    const map = makeMap();
+    const agent = makeAgent("defender-0", "defender", { x: 16, y: 12 });
+    const threat = makeThreat("threat-0", { x: 17, y: 12 });
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    applyAction(
+      {
+        agentId: "defender-0",
+        agentType: "defender",
+        action: "attack",
+        reason: "",
+        from: { x: 16, y: 12 },
+        to: { x: 17, y: 12 },
+        targetThreatId: "threat-0",
+        doctrineVersion: 1,
+      },
+      [agent],
+      map,
+      1,
+      pending,
+      [threat],
+    );
+
+    expect(agent.status).toBe("attacking");
+    expect(threat.hp).toBe(2);
+  });
+
+  it("records threat-neutralized when an attack lands the killing blow", () => {
+    const map = makeMap();
+    const agent = makeAgent("defender-0", "defender", { x: 16, y: 12 }, {
+      workingMemory: {
+        currentTask: "chase:threat-0",
+        taskTarget: { x: 17, y: 12 },
+        taskStartTick: 1,
+      },
+    });
+    const threat = makeThreat("threat-0", { x: 17, y: 12 });
+    threat.hp = 1;
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    applyAction(
+      {
+        agentId: "defender-0",
+        agentType: "defender",
+        action: "attack",
+        reason: "",
+        from: { x: 16, y: 12 },
+        to: { x: 17, y: 12 },
+        targetThreatId: "threat-0",
+        doctrineVersion: 1,
+      },
+      [agent],
+      map,
+      2,
+      pending,
+      [threat],
+    );
+
+    expect(threat.hp).toBe(0);
+    expect(agent.workingMemory.currentTask).toBeNull();
+    expect(pending.some((e) => e.record.eventType === "threat-neutralized")).toBe(true);
+  });
 });
 
 // ============================================================
@@ -870,6 +965,28 @@ describe("threat mechanics", () => {
     moveThreat(threat, [], map);
 
     expect(threat.position).toMatchObject(originalPos);
+  });
+
+  it("does not let a neutralized threat move or damage agents later in the tick", () => {
+    const map = makeMap();
+    const defender = makeAgent("defender-0", "defender", { x: 16, y: 12 });
+    const gatherer = makeAgent("gatherer-0", "gatherer", { x: 18, y: 12 }, { hp: 5, maxHp: 5 });
+    const threat = makeThreat("threat-0", { x: 17, y: 12 });
+    threat.hp = 1;
+    const pending: Array<{ agentId: string; record: EpisodeRecord }> = [];
+
+    const action = executeAgent(defender, makeDoctrine(), map, 1, [], [], [threat], pending);
+    expect(action.action).toBe("attack");
+
+    applyAction(action, [defender, gatherer], map, 1, pending, [threat]);
+    const activeThreats = threat.hp > 0 ? [threat] : [];
+    for (const activeThreat of activeThreats) {
+      moveThreat(activeThreat, [defender, gatherer], map);
+    }
+    applyThreatDamage(activeThreats, [defender, gatherer], 1, pending);
+
+    expect(activeThreats).toHaveLength(0);
+    expect(gatherer.hp).toBe(5);
   });
 });
 

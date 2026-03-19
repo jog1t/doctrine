@@ -44,7 +44,8 @@ export type EpisodeEventType =
   | "resource-depleted"
   | "task-completed"
   | "threat-spotted"
-  | "damage-taken";
+  | "damage-taken"
+  | "threat-neutralized";
 
 /** A single recorded observation (Tier 2: Episodic Memory) */
 export interface EpisodeRecord {
@@ -66,7 +67,7 @@ export interface MemoryConfig {
 
 export type AgentType = "gatherer" | "scout" | "defender";
 
-export type AgentStatus = "idle" | "moving" | "gathering" | "depositing" | "scouting" | "defending" | "returning";
+export type AgentStatus = "idle" | "moving" | "gathering" | "depositing" | "scouting" | "defending" | "returning" | "attacking";
 
 export interface Agent {
   id: string;
@@ -94,7 +95,7 @@ export interface Agent {
 
 // --- Threats ---
 
-/** A hostile unit that wanders and damages agents */
+/** A hostile unit that pursues agents and can be neutralized by defenders. */
 export interface Threat {
   id: string;
   position: Position;
@@ -224,6 +225,7 @@ export interface AgentAction {
   reason: string;
   from: Position;
   to: Position | null;
+  targetThreatId?: string;
   /** Which doctrine version the agent used for this decision */
   doctrineVersion: number;
 }
