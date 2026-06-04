@@ -15,7 +15,7 @@
     "@doctrine/shared": "workspace:*",
     "@hono/node-server": "^1.19.11",
     "@hono/node-ws": "^1.3.0",
-    "hono": "^4.12.8",
+    "hono": "^4.12.21",
     "rivetkit": "^2.1.6"
   },
   "devDependencies": {
